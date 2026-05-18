@@ -43,7 +43,7 @@ export function KpiCards() {
     const loadKpis = async () => {
       try {
         const [orders, customers, products] = await Promise.all([
-          orderService.getOrders({ limit: 100 }),
+          orderService.getOrders({ limit: 25 }),
           customerService.getCustomers({ limit: 1 }),
           productService.getProducts({ limit: 1 }),
         ])

@@ -20,7 +20,7 @@ export function TopProducts() {
   React.useEffect(() => {
     const loadTopProducts = async () => {
       try {
-        const orders = await orderService.getOrders({ limit: 100 })
+        const orders = await orderService.getOrders({ limit: 25 })
         const byProduct = new Map<string, TopProduct>()
 
         for (const order of orders.data) {
