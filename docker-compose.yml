@@ -1,9 +1,6 @@
-version: "3.8"
 services:
   duky-store-dashboard:
     build: .
-    env_file:
-      - .env.local
     ports:
       - "3000:3000"
     environment:
