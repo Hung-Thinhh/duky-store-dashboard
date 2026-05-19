@@ -130,7 +130,7 @@ const navGroups = [
 
 export function AppSidebar() {
   const pathname = usePathname()
-  const [user, setUser] = React.useState(() => authService.getUser())
+  const [user, setUser] = React.useState<ReturnType<typeof authService.getUser>>(null)
   const [isProfileOpen, setIsProfileOpen] = React.useState(false)
   const [isPasswordOpen, setIsPasswordOpen] = React.useState(false)
   const [isSavingPassword, setIsSavingPassword] = React.useState(false)

@@ -3,16 +3,40 @@
 import * as React from "react"
 import Link from "next/link"
 import {
-  IconSearch,
-  IconPlus,
+  IconChevronLeft,
+  IconChevronRight,
+  IconCopy,
   IconDotsVertical,
   IconEdit,
+  IconFilter,
+  IconLoader2,
+  IconPlus,
+  IconRefresh,
+  IconSearch,
   IconTrash,
-  IconEye,
 } from "@tabler/icons-react"
 
+import { ConfirmDialog } from "@/components/ui/confirm-dialog"
+import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
+import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuGroup,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu"
+import { InlineFeedback } from "@/components/ui/inline-feedback"
 import { Input } from "@/components/ui/input"
+import {
+  Select,
+  SelectContent,
+  SelectGroup,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select"
 import {
   Table,
   TableBody,
@@ -21,179 +45,587 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table"
-import { Badge } from "@/components/ui/badge"
-import {
-  DropdownMenu,
-  DropdownMenuContent,
-  DropdownMenuItem,
-  DropdownMenuTrigger,
-} from "@/components/ui/dropdown-menu"
-
 import { blogService } from "@/lib/api/services/blog.service"
-import { BlogPost } from "@/lib/api/schemas/blog.schema"
+import type {
+  BlogCategory,
+  BlogMedia,
+  BlogPost,
+} from "@/lib/api/schemas/blog.schema"
 import { ContentStatus } from "@/lib/api/schemas/enums"
+import type { Pagination } from "@/lib/api/schemas/base.schema"
+import { cn } from "@/lib/utils"
 
-const statusConfig: Record<string, { color: string; label: string }> = {
-  [ContentStatus.PUBLISHED]: { color: "bg-emerald-100 text-emerald-700", label: "Đã xuất bản" },
-  [ContentStatus.DRAFT]: { color: "bg-slate-100 text-slate-700", label: "Bản nháp" },
-  [ContentStatus.HIDDEN]: { color: "bg-amber-100 text-amber-700", label: "Đã ẩn" },
-  [ContentStatus.ARCHIVED]: { color: "bg-zinc-100 text-zinc-700", label: "Lưu trữ" },
+const ALL_STATUSES = "ALL"
+const ALL_CATEGORIES = "ALL"
+
+const statusConfig: Record<
+  string,
+  { label: string; className: string; dotClassName: string }
+> = {
+  [ContentStatus.PUBLISHED]: {
+    label: "Đã đăng",
+    className: "bg-success-soft text-success",
+    dotClassName: "bg-success",
+  },
+  [ContentStatus.DRAFT]: {
+    label: "Bản nháp",
+    className: "bg-muted text-muted-foreground",
+    dotClassName: "bg-muted-foreground",
+  },
+  [ContentStatus.HIDDEN]: {
+    label: "Đã ẩn",
+    className: "bg-warning-soft text-foreground",
+    dotClassName: "bg-warning",
+  },
+  [ContentStatus.ARCHIVED]: {
+    label: "Lưu trữ",
+    className: "bg-secondary text-secondary-foreground",
+    dotClassName: "bg-muted-foreground",
+  },
 }
 
-const mockPosts: BlogPost[] = [
-  {
-    id: "bp_1",
-    title: "Cách phân biệt da bò thật và giả",
-    slug: "cach-phan-biet-da-bo-that-va-gia",
-    status: "PUBLISHED",
-    categoryId: "bc_1",
-    publishedAt: "2026-05-01T10:00:00Z",
-    createdAt: "2026-05-01T10:00:00Z",
-  },
-  {
-    id: "bp_2",
-    title: "Xu hướng giày boot nam thu đông 2026",
-    slug: "xu-huong-giay-boot-nam-thu-dong-2026",
-    status: "DRAFT",
-    categoryId: "bc_2",
-    createdAt: "2026-05-05T10:00:00Z",
+type Feedback = {
+  message: string
+  tone: "info" | "success" | "error"
+}
+
+const initialPagination: Pagination = {
+  page: 1,
+  limit: 25,
+  total: 0,
+  totalPages: 1,
+}
+
+function getMediaUrl(media?: BlogMedia | null) {
+  return media?.secureUrl || media?.url || ""
+}
+
+function formatDate(value?: string | null) {
+  if (!value) return "Chưa có"
+
+  return new Intl.DateTimeFormat("vi-VN", {
+    dateStyle: "short",
+    timeStyle: "short",
+  }).format(new Date(value))
+}
+
+function getCategoryNames(post: BlogPost) {
+  if (!post.categories.length) return "Chưa phân loại"
+  return post.categories.map((category) => category.name).join(", ")
+}
+
+function getPageNumbers(pagination: Pagination) {
+  const pages: Array<number | "..."> = []
+  const total = pagination.totalPages || 1
+  const current = pagination.page || 1
+
+  if (total <= 7) {
+    for (let index = 1; index <= total; index++) pages.push(index)
+  } else if (current <= 4) {
+    pages.push(1, 2, 3, 4, 5, "...", total)
+  } else if (current >= total - 3) {
+    pages.push(1, "...", total - 4, total - 3, total - 2, total - 1, total)
+  } else {
+    pages.push(1, "...", current - 1, current, current + 1, "...", total)
   }
-]
+
+  return pages
+}
+
+function BlogCover({ post }: { post: BlogPost }) {
+  const imageUrl = getMediaUrl(post.coverMedia)
+
+  if (!imageUrl) {
+    return (
+      <div className="flex size-12 items-center justify-center rounded-md border bg-muted text-[10px] text-muted-foreground">
+        No img
+      </div>
+    )
+  }
+
+  return (
+    <img
+      src={imageUrl}
+      alt={post.coverMedia?.altText || post.title}
+      className="size-12 rounded-md object-cover"
+    />
+  )
+}
 
 export default function BlogPostsPage() {
   const [posts, setPosts] = React.useState<BlogPost[]>([])
+  const [categories, setCategories] = React.useState<BlogCategory[]>([])
+  const [pagination, setPagination] =
+    React.useState<Pagination>(initialPagination)
   const [isLoading, setIsLoading] = React.useState(true)
+  const [isDeleting, setIsDeleting] = React.useState(false)
   const [searchQuery, setSearchQuery] = React.useState("")
+  const [statusFilter, setStatusFilter] = React.useState(ALL_STATUSES)
+  const [categoryFilter, setCategoryFilter] = React.useState(ALL_CATEGORIES)
+  const [sort, setSort] = React.useState<"newest" | "oldest">("newest")
+  const [currentPage, setCurrentPage] = React.useState(1)
+  const [feedback, setFeedback] = React.useState<Feedback | null>(null)
+  const [postToDelete, setPostToDelete] = React.useState<BlogPost | null>(null)
+
+  const fetchPosts = React.useCallback(async () => {
+    try {
+      setIsLoading(true)
+      setFeedback(null)
+
+      const data = await blogService.getPosts({
+        page: currentPage,
+        limit: pagination.limit,
+        sort,
+        ...(searchQuery.trim() ? { search: searchQuery.trim() } : {}),
+        ...(statusFilter !== ALL_STATUSES ? { status: statusFilter } : {}),
+        ...(categoryFilter !== ALL_CATEGORIES
+          ? { categorySlug: categoryFilter }
+          : {}),
+      })
+
+      setPosts(data.data)
+      setPagination(data.pagination)
+    } catch (error) {
+      console.error("Failed to fetch blog posts", error)
+      setPosts([])
+      setPagination((current) => ({
+        ...current,
+        page: currentPage,
+        total: 0,
+        totalPages: 1,
+      }))
+      setFeedback({
+        message: "Không tải được danh sách bài viết từ API.",
+        tone: "error",
+      })
+    } finally {
+      setIsLoading(false)
+    }
+  }, [
+    categoryFilter,
+    currentPage,
+    pagination.limit,
+    searchQuery,
+    sort,
+    statusFilter,
+  ])
 
   React.useEffect(() => {
-    const fetchPosts = async () => {
+    const timeout = window.setTimeout(fetchPosts, 250)
+    return () => window.clearTimeout(timeout)
+  }, [fetchPosts])
+
+  React.useEffect(() => {
+    const fetchCategories = async () => {
       try {
-        setIsLoading(true)
-        const data = await blogService.getPosts()
-        setPosts(data.data)
+        const response = await blogService.getCategories({ limit: 100 })
+        setCategories(response.data)
       } catch (error) {
-        console.warn("Failed to fetch blog posts, using mock data", error)
-        setPosts(mockPosts)
-      } finally {
-        setIsLoading(false)
+        console.error("Failed to fetch blog categories", error)
       }
     }
-    fetchPosts()
+
+    fetchCategories()
   }, [])
 
-  const filteredPosts = posts.filter((post) =>
-    post.title.toLowerCase().includes(searchQuery.toLowerCase())
-  )
+  const resetFilters = () => {
+    setSearchQuery("")
+    setStatusFilter(ALL_STATUSES)
+    setCategoryFilter(ALL_CATEGORIES)
+    setSort("newest")
+    setCurrentPage(1)
+  }
+
+  const handleDelete = async () => {
+    if (!postToDelete) return
+
+    try {
+      setIsDeleting(true)
+      await blogService.deletePost(postToDelete.id)
+      setFeedback({
+        message: `Đã xoá bài viết "${postToDelete.title}".`,
+        tone: "success",
+      })
+      setPostToDelete(null)
+      await fetchPosts()
+    } catch (error) {
+      console.error("Failed to delete blog post", error)
+      setFeedback({
+        message: "Chưa xoá được bài viết. Kiểm tra API/backend rồi thử lại.",
+        tone: "error",
+      })
+    } finally {
+      setIsDeleting(false)
+    }
+  }
+
+  const copySlug = async (slug: string) => {
+    try {
+      await navigator.clipboard.writeText(slug)
+      setFeedback({ message: "Đã sao chép slug bài viết.", tone: "success" })
+    } catch {
+      setFeedback({ message: "Không sao chép được slug.", tone: "error" })
+    }
+  }
+
+  const hasFilters =
+    searchQuery ||
+    statusFilter !== ALL_STATUSES ||
+    categoryFilter !== ALL_CATEGORIES ||
+    sort !== "newest"
 
   return (
     <div className="flex flex-col gap-6 p-6">
-      {/* Header */}
       <div className="flex flex-col gap-4 md:flex-row md:items-center md:justify-between">
         <div>
           <h1 className="text-2xl font-bold tracking-tight">Bài viết</h1>
-          <p className="text-sm text-muted-foreground mt-1">
-            Quản lý nội dung bài viết trên blog.
+          <p className="mt-1 text-sm text-muted-foreground">
+            Quản lý danh sách, trạng thái xuất bản và nội dung blog bán hàng.
           </p>
         </div>
-        <div className="flex gap-2">
-          <Button asChild className="rounded-xl">
+
+        <div className="flex flex-wrap items-center gap-2">
+          <Button
+            type="button"
+            variant="outline"
+            onClick={fetchPosts}
+            disabled={isLoading}
+          >
+            {isLoading ? (
+              <IconLoader2 data-icon="inline-start" className="animate-spin" />
+            ) : (
+              <IconRefresh data-icon="inline-start" />
+            )}
+            Tải lại
+          </Button>
+          <Button asChild>
             <Link href="/blog/new">
-              <IconPlus className="mr-2 size-4" />
+              <IconPlus data-icon="inline-start" />
               Viết bài mới
             </Link>
           </Button>
         </div>
       </div>
 
-      {/* Search */}
-      <div className="flex items-center gap-2">
-        <div className="relative">
-          <IconSearch className="absolute left-3 top-1/2 size-4 -translate-y-1/2 text-muted-foreground" />
-          <Input
-            placeholder="Tìm tiêu đề..."
-            className="w-full rounded-xl pl-9 md:w-[350px]"
-            value={searchQuery}
-            onChange={(e) => setSearchQuery(e.target.value)}
-          />
-        </div>
-      </div>
+      <InlineFeedback
+        message={feedback?.message ?? null}
+        tone={feedback?.tone}
+      />
 
-      {/* Table */}
+      <Card>
+        <CardHeader className="pb-3">
+          <CardTitle className="flex items-center gap-2 text-base">
+            <IconFilter />
+            Bộ lọc bài viết
+          </CardTitle>
+        </CardHeader>
+        <CardContent>
+          <div className="flex flex-col gap-3 lg:flex-row lg:items-center">
+            <div className="relative min-w-0 flex-1 lg:max-w-md">
+              <IconSearch className="absolute top-1/2 left-3 -translate-y-1/2 text-muted-foreground" />
+              <Input
+                value={searchQuery}
+                onChange={(event) => {
+                  setSearchQuery(event.target.value)
+                  setCurrentPage(1)
+                }}
+                placeholder="Tìm tiêu đề, slug, mô tả..."
+                className="pl-9"
+              />
+            </div>
+
+            <Select
+              value={statusFilter}
+              onValueChange={(value) => {
+                setStatusFilter(value)
+                setCurrentPage(1)
+              }}
+            >
+              <SelectTrigger className="w-full lg:w-44">
+                <SelectValue placeholder="Trạng thái" />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectGroup>
+                  <SelectItem value={ALL_STATUSES}>Tất cả trạng thái</SelectItem>
+                  <SelectItem value={ContentStatus.PUBLISHED}>Đã đăng</SelectItem>
+                  <SelectItem value={ContentStatus.DRAFT}>Bản nháp</SelectItem>
+                  <SelectItem value={ContentStatus.HIDDEN}>Đã ẩn</SelectItem>
+                  <SelectItem value={ContentStatus.ARCHIVED}>Lưu trữ</SelectItem>
+                </SelectGroup>
+              </SelectContent>
+            </Select>
+
+            <Select
+              value={categoryFilter}
+              onValueChange={(value) => {
+                setCategoryFilter(value)
+                setCurrentPage(1)
+              }}
+            >
+              <SelectTrigger className="w-full lg:w-56">
+                <SelectValue placeholder="Danh mục" />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectGroup>
+                  <SelectItem value={ALL_CATEGORIES}>Tất cả danh mục</SelectItem>
+                  {categories.map((category) => (
+                    <SelectItem key={category.id} value={category.slug}>
+                      {category.name}
+                    </SelectItem>
+                  ))}
+                </SelectGroup>
+              </SelectContent>
+            </Select>
+
+            <Select
+              value={sort}
+              onValueChange={(value) => {
+                setSort(value as "newest" | "oldest")
+                setCurrentPage(1)
+              }}
+            >
+              <SelectTrigger className="w-full lg:w-40">
+                <SelectValue placeholder="Sắp xếp" />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectGroup>
+                  <SelectItem value="newest">Mới nhất</SelectItem>
+                  <SelectItem value="oldest">Cũ nhất</SelectItem>
+                </SelectGroup>
+              </SelectContent>
+            </Select>
+
+            {hasFilters ? (
+              <Button type="button" variant="ghost" onClick={resetFilters}>
+                Xoá lọc
+              </Button>
+            ) : null}
+          </div>
+        </CardContent>
+      </Card>
+
       <div className="overflow-hidden rounded-xl border bg-card">
         <Table>
           <TableHeader className="bg-muted/30">
             <TableRow className="hover:bg-transparent">
-              <TableHead className="h-12">Bài viết</TableHead>
-              <TableHead className="h-12">Danh mục</TableHead>
-              <TableHead className="h-12">Trạng thái</TableHead>
-              <TableHead className="h-12">Ngày xuất bản</TableHead>
-              <TableHead className="h-12 text-right">Thao tác</TableHead>
+              <TableHead className="w-[45%] min-w-[320px]">Tiêu đề</TableHead>
+              <TableHead>Tác giả</TableHead>
+              <TableHead>Ngày đăng</TableHead>
+              <TableHead>Danh mục</TableHead>
+              <TableHead>Cập nhật</TableHead>
+              <TableHead>Trạng thái</TableHead>
+              <TableHead className="w-20 text-right">Thao tác</TableHead>
             </TableRow>
           </TableHeader>
           <TableBody>
             {isLoading ? (
               <TableRow>
-                <TableCell colSpan={5} className="h-32 text-center text-muted-foreground">
-                  Đang tải dữ liệu...
+                <TableCell
+                  colSpan={7}
+                  className="h-40 text-center text-muted-foreground"
+                >
+                  <div className="flex items-center justify-center gap-2">
+                    <IconLoader2 className="animate-spin" />
+                    Đang tải bài viết...
+                  </div>
                 </TableCell>
               </TableRow>
-            ) : filteredPosts.length === 0 ? (
+            ) : posts.length === 0 ? (
               <TableRow>
-                <TableCell colSpan={5} className="h-32 text-center text-muted-foreground">
-                  Không tìm thấy bài viết nào.
+                <TableCell
+                  colSpan={7}
+                  className="h-40 text-center text-muted-foreground"
+                >
+                  Không tìm thấy bài viết phù hợp.
                 </TableCell>
               </TableRow>
             ) : (
-              filteredPosts.map((post) => (
-                <TableRow key={post.id} className="hover:bg-muted/50 transition-colors">
-                  <TableCell>
-                    <div className="flex flex-col">
-                      <span className="font-medium text-primary">{post.title}</span>
-                      <span className="text-xs text-muted-foreground">{post.slug}</span>
-                    </div>
-                  </TableCell>
-                  <TableCell className="text-muted-foreground">
-                    {post.categoryId || "Chưa có"}
-                  </TableCell>
-                  <TableCell>
-                    <Badge 
-                      variant="secondary" 
-                      className={(statusConfig[post.status ?? "DRAFT"]?.color ?? "") + " border-transparent rounded-md"}
-                    >
-                      {statusConfig[post.status ?? "DRAFT"]?.label || post.status}
-                    </Badge>
-                  </TableCell>
-                  <TableCell className="text-sm text-muted-foreground">
-                    {post.publishedAt ? new Date(post.publishedAt).toLocaleDateString("vi-VN") : "N/A"}
-                  </TableCell>
-                  <TableCell className="text-right">
-                    <DropdownMenu>
-                      <DropdownMenuTrigger asChild>
-                        <Button variant="ghost" size="icon" className="size-8 rounded-lg">
-                          <IconDotsVertical className="size-4" />
-                        </Button>
-                      </DropdownMenuTrigger>
-                      <DropdownMenuContent align="end" className="rounded-xl w-32">
-                        <DropdownMenuItem asChild className="rounded-lg cursor-pointer">
-                          <Link href={`/blog/${post.id}`}>
-                            <IconEdit className="mr-2 size-4" /> Sửa
+              posts.map((post) => {
+                const status = statusConfig[post.status ?? ContentStatus.DRAFT]
+
+                return (
+                  <TableRow
+                    key={post.id}
+                    className="transition-colors hover:bg-muted/50"
+                  >
+                    <TableCell>
+                      <div className="flex min-w-0 items-center gap-3">
+                        <BlogCover post={post} />
+                        <div className="min-w-0">
+                          <Link
+                            href={`/blog/${post.id}`}
+                            className="block truncate font-medium text-foreground hover:text-primary"
+                          >
+                            {post.title}
                           </Link>
-                        </DropdownMenuItem>
-                        <DropdownMenuItem className="rounded-lg cursor-pointer">
-                          <IconEye className="mr-2 size-4" /> Xem public
-                        </DropdownMenuItem>
-                        <DropdownMenuItem className="rounded-lg cursor-pointer text-destructive focus:bg-destructive/10 focus:text-destructive">
-                          <IconTrash className="mr-2 size-4" /> Xóa
-                        </DropdownMenuItem>
-                      </DropdownMenuContent>
-                    </DropdownMenu>
-                  </TableCell>
-                </TableRow>
-              ))
+                          <p className="truncate font-mono text-xs text-muted-foreground">
+                            /blog/{post.slug}
+                          </p>
+                        </div>
+                      </div>
+                    </TableCell>
+                    <TableCell className="text-sm text-muted-foreground">
+                      {post.author?.fullName || post.author?.email || "Admin"}
+                    </TableCell>
+                    <TableCell className="text-sm text-muted-foreground">
+                      {formatDate(post.publishedAt)}
+                    </TableCell>
+                    <TableCell className="max-w-48">
+                      <span className="line-clamp-2 text-sm">
+                        {getCategoryNames(post)}
+                      </span>
+                    </TableCell>
+                    <TableCell className="text-sm text-muted-foreground">
+                      {formatDate(post.updatedAt)}
+                    </TableCell>
+                    <TableCell>
+                      <Badge
+                        variant="secondary"
+                        className={cn("gap-1.5 border-transparent", status.className)}
+                      >
+                        <span
+                          className={cn("size-1.5 rounded-full", status.dotClassName)}
+                        />
+                        {status.label}
+                      </Badge>
+                    </TableCell>
+                    <TableCell className="text-right">
+                      <DropdownMenu>
+                        <DropdownMenuTrigger asChild>
+                          <Button
+                            type="button"
+                            variant="ghost"
+                            size="icon-sm"
+                            aria-label="Mở thao tác bài viết"
+                          >
+                            <IconDotsVertical />
+                          </Button>
+                        </DropdownMenuTrigger>
+                        <DropdownMenuContent align="end">
+                          <DropdownMenuGroup>
+                            <DropdownMenuItem asChild>
+                              <Link href={`/blog/${post.id}`}>
+                                <IconEdit />
+                                Chỉnh sửa
+                              </Link>
+                            </DropdownMenuItem>
+                            <DropdownMenuItem onClick={() => copySlug(post.slug)}>
+                              <IconCopy />
+                              Sao chép slug
+                            </DropdownMenuItem>
+                            <DropdownMenuItem
+                              variant="destructive"
+                              onClick={() => setPostToDelete(post)}
+                            >
+                              <IconTrash />
+                              Xoá bài viết
+                            </DropdownMenuItem>
+                          </DropdownMenuGroup>
+                        </DropdownMenuContent>
+                      </DropdownMenu>
+                    </TableCell>
+                  </TableRow>
+                )
+              })
             )}
           </TableBody>
         </Table>
       </div>
+
+      <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
+        <div className="flex flex-wrap items-center gap-3 text-sm text-muted-foreground">
+          <span>
+            Trang {pagination.page || 1}/{pagination.totalPages || 1} ·{" "}
+            {pagination.total} bài viết
+          </span>
+          <Select
+            value={String(pagination.limit)}
+            onValueChange={(value) => {
+              setPagination((current) => ({
+                ...current,
+                limit: Number(value),
+              }))
+              setCurrentPage(1)
+            }}
+          >
+            <SelectTrigger size="sm" className="w-28">
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectGroup>
+                <SelectItem value="10">10 / trang</SelectItem>
+                <SelectItem value="25">25 / trang</SelectItem>
+                <SelectItem value="50">50 / trang</SelectItem>
+              </SelectGroup>
+            </SelectContent>
+          </Select>
+        </div>
+
+        <div className="flex flex-wrap items-center gap-2">
+          <Button
+            type="button"
+            variant="outline"
+            size="sm"
+            onClick={() => setCurrentPage((page) => Math.max(1, page - 1))}
+            disabled={isLoading || pagination.page <= 1}
+          >
+            <IconChevronLeft data-icon="inline-start" />
+            Trước
+          </Button>
+          <div className="flex items-center gap-1">
+            {getPageNumbers(pagination).map((page, index) =>
+              page === "..." ? (
+                <span
+                  key={`ellipsis-${index}`}
+                  className="px-2 text-muted-foreground"
+                >
+                  ...
+                </span>
+              ) : (
+                <Button
+                  key={`page-${page}`}
+                  type="button"
+                  variant={pagination.page === page ? "default" : "outline"}
+                  size="icon-sm"
+                  onClick={() => setCurrentPage(page)}
+                  disabled={isLoading}
+                >
+                  {page}
+                </Button>
+              )
+            )}
+          </div>
+          <Button
+            type="button"
+            variant="outline"
+            size="sm"
+            onClick={() =>
+              setCurrentPage((page) =>
+                Math.min(pagination.totalPages || 1, page + 1)
+              )
+            }
+            disabled={isLoading || pagination.page >= pagination.totalPages}
+          >
+            Sau
+            <IconChevronRight data-icon="inline-end" />
+          </Button>
+        </div>
+      </div>
+
+      <ConfirmDialog
+        open={!!postToDelete}
+        title="Xoá bài viết này?"
+        description={
+          postToDelete
+            ? `Bài "${postToDelete.title}" sẽ bị xoá mềm khỏi dashboard.`
+            : undefined
+        }
+        confirmLabel="Xoá bài viết"
+        destructive
+        isLoading={isDeleting}
+        onOpenChange={(open) => !open && setPostToDelete(null)}
+        onConfirm={handleDelete}
+      />
     </div>
   )
 }

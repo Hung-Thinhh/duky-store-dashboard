@@ -1,19 +1,76 @@
-import { z } from "zod";
-import { createPaginatedResponseSchema, createResponseSchema } from "./base.schema";
-import { ContentStatus } from "./enums";
-import { SeoSchema } from "./shared.schema";
+import { z } from "zod"
+
+import {
+  createPaginatedResponseSchema,
+  createResponseSchema,
+} from "./base.schema"
+import { ContentStatus, TagType } from "./enums"
+import { SeoSchema } from "./shared.schema"
+
+export const BlogMediaSchema = z.object({
+  id: z.string(),
+  url: z.string(),
+  secureUrl: z.string().optional().nullable(),
+  fileName: z.string().optional().nullable(),
+  altText: z.string().optional().nullable(),
+  title: z.string().optional().nullable(),
+})
+
+export const BlogPostContentImageSchema = z.object({
+  id: z.string().optional(),
+  mediaId: z.string(),
+  sortOrder: z.number().optional().default(0),
+  altText: z.string().optional().nullable(),
+  title: z.string().optional().nullable(),
+  caption: z.string().optional().nullable(),
+  description: z.string().optional().nullable(),
+  credit: z.string().optional().nullable(),
+  linkUrl: z.string().optional().nullable(),
+  isFeatured: z.boolean().optional().default(false),
+  media: BlogMediaSchema.optional().nullable(),
+})
+
+export const BlogAuthorSchema = z.object({
+  id: z.string(),
+  fullName: z.string().optional().nullable(),
+  email: z.string().optional().nullable(),
+})
+
+export const BlogCategorySummarySchema = z.object({
+  id: z.string(),
+  name: z.string(),
+  slug: z.string(),
+  status: z.nativeEnum(ContentStatus).optional(),
+})
+
+export const BlogTagSummarySchema = z.object({
+  id: z.string(),
+  name: z.string(),
+  slug: z.string(),
+  type: z.nativeEnum(TagType).optional(),
+})
 
 export const BlogCategorySchema = z.object({
   id: z.string(),
   name: z.string().min(1, "Tên danh mục là bắt buộc"),
   slug: z.string().min(1, "Slug là bắt buộc"),
   description: z.string().optional().nullable(),
+  parentId: z.string().optional().nullable(),
+  parent: BlogCategorySummarySchema.pick({
+    id: true,
+    name: true,
+    slug: true,
+  })
+    .optional()
+    .nullable(),
   status: z.nativeEnum(ContentStatus).default("PUBLISHED"),
   sortOrder: z.number().default(0),
+  childrenCount: z.number().optional(),
+  postsCount: z.number().optional(),
   seo: SeoSchema.optional().nullable(),
   createdAt: z.string().optional(),
   updatedAt: z.string().optional(),
-});
+})
 
 export const BlogPostSchema = z.object({
   id: z.string(),
@@ -21,41 +78,95 @@ export const BlogPostSchema = z.object({
   slug: z.string().min(1, "Slug là bắt buộc"),
   excerpt: z.string().optional().nullable(),
   content: z.string().optional().nullable(),
-  thumbnailMediaId: z.string().optional().nullable(),
+  coverMediaId: z.string().optional().nullable(),
+  coverMedia: BlogMediaSchema.optional().nullable(),
   status: z.nativeEnum(ContentStatus).default("DRAFT"),
-  categoryId: z.string().optional().nullable(),
-  tagIds: z.array(z.string()).default([]),
+  authorId: z.string().optional().nullable(),
+  author: BlogAuthorSchema.optional().nullable(),
   publishedAt: z.string().optional().nullable(),
+  categories: z.array(BlogCategorySummarySchema).default([]),
+  categoryIds: z.array(z.string()).optional().default([]),
+  tags: z.array(BlogTagSummarySchema).default([]),
+  tagIds: z.array(z.string()).optional().default([]),
+  contentImages: z.array(BlogPostContentImageSchema).optional().default([]),
   seo: SeoSchema.optional().nullable(),
   createdAt: z.string().optional(),
   updatedAt: z.string().optional(),
-});
+})
 
-export const CreateBlogCategoryPayloadSchema = BlogCategorySchema.omit({
-  id: true,
-  createdAt: true,
-  updatedAt: true,
-});
+export const CreateBlogCategoryPayloadSchema = z.object({
+  name: z.string().min(2, "Tên danh mục là bắt buộc"),
+  slug: z.string().optional().nullable(),
+  description: z.string().optional().nullable(),
+  parentId: z.string().optional().nullable(),
+  sortOrder: z.number().min(0).optional().default(0),
+  status: z.nativeEnum(ContentStatus).optional().default("PUBLISHED"),
+  seo: SeoSchema.optional().nullable(),
+})
 
-export const UpdateBlogCategoryPayloadSchema = CreateBlogCategoryPayloadSchema.partial();
+export const UpdateBlogCategoryPayloadSchema =
+  CreateBlogCategoryPayloadSchema.partial()
 
-export const CreateBlogPostPayloadSchema = BlogPostSchema.omit({
-  id: true,
-  createdAt: true,
-  updatedAt: true,
-});
+export const CreateBlogPostPayloadSchema = z.object({
+  title: z.string().min(3, "Tiêu đề cần tối thiểu 3 ký tự"),
+  slug: z.string().optional().nullable(),
+  excerpt: z.string().optional().nullable(),
+  content: z.string().min(10, "Nội dung cần tối thiểu 10 ký tự"),
+  coverMediaId: z.string().optional().nullable(),
+  status: z.nativeEnum(ContentStatus).optional().default("DRAFT"),
+  categoryIds: z.array(z.string()).optional().default([]),
+  tagIds: z.array(z.string()).optional().default([]),
+  contentImages: z
+    .array(
+      BlogPostContentImageSchema.pick({
+        mediaId: true,
+        sortOrder: true,
+        altText: true,
+        title: true,
+        caption: true,
+        description: true,
+        credit: true,
+        linkUrl: true,
+        isFeatured: true,
+      })
+    )
+    .optional()
+    .default([]),
+  seo: SeoSchema.optional().nullable(),
+})
 
-export const UpdateBlogPostPayloadSchema = CreateBlogPostPayloadSchema.partial();
+export const UpdateBlogPostPayloadSchema =
+  CreateBlogPostPayloadSchema.partial()
 
-export const BlogCategoryListResponseSchema = createPaginatedResponseSchema(BlogCategorySchema);
-export const BlogCategoryDetailResponseSchema = createResponseSchema(BlogCategorySchema);
+export const BlogCategoryListResponseSchema =
+  createPaginatedResponseSchema(BlogCategorySchema)
+export const BlogCategoryDetailResponseSchema =
+  createResponseSchema(BlogCategorySchema)
 
-export const BlogPostListResponseSchema = createPaginatedResponseSchema(BlogPostSchema);
-export const BlogPostDetailResponseSchema = createResponseSchema(BlogPostSchema);
+export const BlogPostListResponseSchema =
+  createPaginatedResponseSchema(BlogPostSchema)
+export const BlogPostDetailResponseSchema = createResponseSchema(BlogPostSchema)
 
-export type BlogCategory = z.input<typeof BlogCategorySchema>;
-export type BlogPost = z.input<typeof BlogPostSchema>;
-export type CreateBlogCategoryPayload = z.input<typeof CreateBlogCategoryPayloadSchema>;
-export type UpdateBlogCategoryPayload = z.input<typeof UpdateBlogCategoryPayloadSchema>;
-export type CreateBlogPostPayload = z.input<typeof CreateBlogPostPayloadSchema>;
-export type UpdateBlogPostPayload = z.input<typeof UpdateBlogPostPayloadSchema>;
+export type BlogMedia = z.infer<typeof BlogMediaSchema>
+export type BlogAuthor = z.infer<typeof BlogAuthorSchema>
+export type BlogCategorySummary = z.infer<typeof BlogCategorySummarySchema>
+export type BlogTagSummary = z.infer<typeof BlogTagSummarySchema>
+export type BlogCategory = z.infer<typeof BlogCategorySchema>
+export type BlogPost = z.infer<typeof BlogPostSchema>
+export type BlogPostContentImage = z.infer<typeof BlogPostContentImageSchema>
+export type CreateBlogCategoryPayload = z.input<
+  typeof CreateBlogCategoryPayloadSchema
+>
+export type UpdateBlogCategoryPayload = z.input<
+  typeof UpdateBlogCategoryPayloadSchema
+>
+export type CreateBlogPostPayload = z.input<
+  typeof CreateBlogPostPayloadSchema
+>
+export type UpdateBlogPostPayload = z.input<
+  typeof UpdateBlogPostPayloadSchema
+>
+export type BlogCategoryListResponse = z.infer<
+  typeof BlogCategoryListResponseSchema
+>
+export type BlogPostListResponse = z.infer<typeof BlogPostListResponseSchema>

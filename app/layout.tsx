@@ -26,6 +26,7 @@ export default function RootLayout({
   return (
     <html
       lang="vi"
+      suppressHydrationWarning
       className={cn("antialiased", fontMono.variable, "font-sans", inter.variable)}
     >
       <head>
@@ -37,7 +38,7 @@ export default function RootLayout({
           />
         )}
       </head>
-      <body>
+      <body suppressHydrationWarning>
         {children}
       </body>
     </html>

@@ -34,6 +34,16 @@ export const mediaService = {
     return MediaSchema.array().parse((response as any).DT);
   },
 
+  async createExternalMedia(data: {
+    url: string;
+    altText?: string;
+    title?: string;
+    originalName?: string;
+  }) {
+    const response = await apiClient.post("/admin/media/external", data);
+    return MediaDetailResponseSchema.parse(response).DT;
+  },
+
   async deleteMedia(id: string) {
     const response = await apiClient.delete(`/admin/media/${id}`);
     return response;

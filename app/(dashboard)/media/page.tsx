@@ -151,7 +151,7 @@ export default function MediaPage() {
               <div className="p-2 text-xs">
                 <p className="truncate font-medium" title={media.filename}>{media.filename}</p>
                 <p className="mt-0.5 flex justify-between text-muted-foreground">
-                  <span>{formatBytes(media.size)}</span>
+                  <span>{formatBytes(media.size ?? 0)}</span>
                   <span>{media.width && media.height ? `${media.width}x${media.height}` : ""}</span>
                 </p>
               </div>

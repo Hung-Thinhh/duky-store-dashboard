@@ -3,11 +3,12 @@ import { createPaginatedResponseSchema, createResponseSchema } from "./base.sche
 
 export const MediaSchema = z.object({
   id: z.string(),
-  url: z.string().url(),
-  fileName: z.string(),
+  url: z.string().min(1),
+  secureUrl: z.string().optional().nullable(),
+  fileName: z.string().optional().nullable(),
   originalName: z.string().optional().nullable(),
   mimeType: z.string(),
-  size: z.number(), // in bytes
+  size: z.number().optional().nullable(), // in bytes
   width: z.number().optional().nullable(),
   height: z.number().optional().nullable(),
   altText: z.string().optional().nullable(),
@@ -16,7 +17,7 @@ export const MediaSchema = z.object({
   createdAt: z.string().optional(),
 }).transform((media) => ({
   ...media,
-  filename: media.originalName ?? media.fileName,
+  filename: media.originalName ?? media.fileName ?? "media-file",
 }));
 
 export const MediaListResponseSchema = createPaginatedResponseSchema(MediaSchema);
