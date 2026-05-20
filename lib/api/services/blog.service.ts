@@ -4,10 +4,14 @@ import {
   BlogCategoryListResponseSchema,
   BlogPostDetailResponseSchema,
   BlogPostListResponseSchema,
+  BlogReusableBlockDetailResponseSchema,
+  BlogReusableBlockListResponseSchema,
   CreateBlogCategoryPayload,
   CreateBlogPostPayload,
+  CreateBlogReusableBlockPayload,
   UpdateBlogCategoryPayload,
   UpdateBlogPostPayload,
+  UpdateBlogReusableBlockPayload,
 } from "../schemas/blog.schema";
 
 export const blogService = {
@@ -60,6 +64,32 @@ export const blogService = {
 
   async deletePost(id: string) {
     const response = await apiClient.delete(`/admin/blog-posts/${id}`);
+    return response;
+  },
+
+  // Reusable content blocks
+  async getReusableBlocks(params?: Record<string, any>) {
+    const response = await apiClient.get("/admin/blog-reusable-blocks", {
+      params,
+    });
+    return BlogReusableBlockListResponseSchema.parse(response).DT;
+  },
+
+  async createReusableBlock(data: CreateBlogReusableBlockPayload) {
+    const response = await apiClient.post("/admin/blog-reusable-blocks", data);
+    return BlogReusableBlockDetailResponseSchema.parse(response).DT;
+  },
+
+  async updateReusableBlock(id: string, data: UpdateBlogReusableBlockPayload) {
+    const response = await apiClient.patch(
+      `/admin/blog-reusable-blocks/${id}`,
+      data
+    );
+    return BlogReusableBlockDetailResponseSchema.parse(response).DT;
+  },
+
+  async deleteReusableBlock(id: string) {
+    const response = await apiClient.delete(`/admin/blog-reusable-blocks/${id}`);
     return response;
   },
 };

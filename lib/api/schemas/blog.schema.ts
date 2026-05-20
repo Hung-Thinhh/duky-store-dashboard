@@ -30,6 +30,28 @@ export const BlogPostContentImageSchema = z.object({
   media: BlogMediaSchema.optional().nullable(),
 })
 
+export const BlogReusableBlockTypeSchema = z.enum([
+  "TITLE",
+  "CONTENT",
+  "FOOTER",
+  "CUSTOM",
+])
+
+export const BlogReusableBlockSchema = z.object({
+  id: z.string(),
+  name: z.string(),
+  slug: z.string(),
+  type: BlogReusableBlockTypeSchema.default("CUSTOM"),
+  description: z.string().optional().nullable(),
+  html: z.string(),
+  isActive: z.boolean().default(true),
+  sortOrder: z.number().default(0),
+  createdById: z.string().optional().nullable(),
+  updatedById: z.string().optional().nullable(),
+  createdAt: z.string().optional(),
+  updatedAt: z.string().optional(),
+})
+
 export const BlogAuthorSchema = z.object({
   id: z.string(),
   fullName: z.string().optional().nullable(),
@@ -138,6 +160,19 @@ export const CreateBlogPostPayloadSchema = z.object({
 export const UpdateBlogPostPayloadSchema =
   CreateBlogPostPayloadSchema.partial()
 
+export const CreateBlogReusableBlockPayloadSchema = z.object({
+  name: z.string().min(2, "Tên block là bắt buộc"),
+  slug: z.string().optional().nullable(),
+  type: BlogReusableBlockTypeSchema.optional().default("CUSTOM"),
+  description: z.string().optional().nullable(),
+  html: z.string().min(1, "Nội dung block là bắt buộc"),
+  isActive: z.boolean().optional().default(true),
+  sortOrder: z.number().min(0).optional().default(0),
+})
+
+export const UpdateBlogReusableBlockPayloadSchema =
+  CreateBlogReusableBlockPayloadSchema.partial()
+
 export const BlogCategoryListResponseSchema =
   createPaginatedResponseSchema(BlogCategorySchema)
 export const BlogCategoryDetailResponseSchema =
@@ -146,9 +181,15 @@ export const BlogCategoryDetailResponseSchema =
 export const BlogPostListResponseSchema =
   createPaginatedResponseSchema(BlogPostSchema)
 export const BlogPostDetailResponseSchema = createResponseSchema(BlogPostSchema)
+export const BlogReusableBlockListResponseSchema =
+  createPaginatedResponseSchema(BlogReusableBlockSchema)
+export const BlogReusableBlockDetailResponseSchema =
+  createResponseSchema(BlogReusableBlockSchema)
 
 export type BlogMedia = z.infer<typeof BlogMediaSchema>
 export type BlogAuthor = z.infer<typeof BlogAuthorSchema>
+export type BlogReusableBlockType = z.infer<typeof BlogReusableBlockTypeSchema>
+export type BlogReusableBlock = z.infer<typeof BlogReusableBlockSchema>
 export type BlogCategorySummary = z.infer<typeof BlogCategorySummarySchema>
 export type BlogTagSummary = z.infer<typeof BlogTagSummarySchema>
 export type BlogCategory = z.infer<typeof BlogCategorySchema>
@@ -165,6 +206,12 @@ export type CreateBlogPostPayload = z.input<
 >
 export type UpdateBlogPostPayload = z.input<
   typeof UpdateBlogPostPayloadSchema
+>
+export type CreateBlogReusableBlockPayload = z.input<
+  typeof CreateBlogReusableBlockPayloadSchema
+>
+export type UpdateBlogReusableBlockPayload = z.input<
+  typeof UpdateBlogReusableBlockPayloadSchema
 >
 export type BlogCategoryListResponse = z.infer<
   typeof BlogCategoryListResponseSchema

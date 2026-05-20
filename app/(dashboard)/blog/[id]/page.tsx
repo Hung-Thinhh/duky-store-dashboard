@@ -5,9 +5,19 @@ import Link from "next/link"
 import { useParams, useRouter } from "next/navigation"
 import { Controller, useForm, useWatch } from "react-hook-form"
 import { zodResolver } from "@hookform/resolvers/zod"
-import { EditorContent, useEditor, useEditorState, type Editor } from "@tiptap/react"
+import {
+  EditorContent,
+  NodeViewContent,
+  NodeViewWrapper,
+  ReactNodeViewRenderer,
+  useEditor,
+  useEditorState,
+  type Editor,
+  type NodeViewProps,
+} from "@tiptap/react"
 import { BubbleMenu } from "@tiptap/react/menus"
 import { Extension, mergeAttributes } from "@tiptap/core"
+import Blockquote from "@tiptap/extension-blockquote"
 import Color from "@tiptap/extension-color"
 import FontFamily from "@tiptap/extension-font-family"
 import Highlight from "@tiptap/extension-highlight"
@@ -26,6 +36,7 @@ import TaskList from "@tiptap/extension-task-list"
 import TextAlign from "@tiptap/extension-text-align"
 import { TextStyle } from "@tiptap/extension-text-style"
 import Underline from "@tiptap/extension-underline"
+import { DOMSerializer } from "@tiptap/pm/model"
 import {
   IconArrowLeft,
   IconBlockquote,
@@ -66,8 +77,11 @@ import {
   IconTextSpellcheck,
   IconTextWrap,
   IconTrash,
+  IconArrowUp,
+  IconArrowDown,
   IconArrowBackUp,
   IconArrowForwardUp,
+  IconGripVertical,
   IconLayoutAlignLeft,
   IconLayoutAlignCenter,
   IconLayoutAlignRight,
@@ -84,7 +98,6 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog"
-import { InlineFeedback } from "@/components/ui/inline-feedback"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import {
@@ -103,6 +116,8 @@ import {
   CreateBlogPostPayloadSchema,
   type BlogCategory,
   type BlogPostContentImage,
+  type BlogReusableBlock,
+  type BlogReusableBlockType,
   type BlogPost,
 } from "@/lib/api/schemas/blog.schema"
 import { ContentStatus, TagType } from "@/lib/api/schemas/enums"
@@ -207,7 +222,7 @@ const BlogImage = Image.extend({
 })
 
 const fontFamilies = [
-  { label: "MÃ¡ÂºÂ·c Ã„â€˜Ã¡Â»â€¹nh", value: "" },
+  { label: "Mặc định", value: "" },
   { label: "Inter", value: "Inter, sans-serif" },
   { label: "Georgia", value: "Georgia, serif" },
   { label: "Times", value: "'Times New Roman', serif" },
@@ -248,65 +263,53 @@ type Feedback = {
   tone: "info" | "success" | "error"
 }
 
-type ReusableContentBlock = {
-  id: string
-  name: string
-  html: string
-  createdAt: string
-}
-
-const REUSABLE_BLOCKS_STORAGE_KEY = "duky_blog_reusable_blocks_v1"
 const CONTENT_BLOCK_SEPARATOR = "<!-- duky-block -->"
 
 const statusLabels: Record<string, string> = {
-  [ContentStatus.PUBLISHED]: "CÒ´ng khai",
-  [ContentStatus.DRAFT]: "Tin nhÒ¡p",
+  [ContentStatus.PUBLISHED]: "Công khai",
+  [ContentStatus.DRAFT]: "Tin nháp",
   [ContentStatus.HIDDEN]: "Ẩn",
-  [ContentStatus.ARCHIVED]: "L� °u trá»¯",
+  [ContentStatus.ARCHIVED]: "Lưu trữ",
 }
 
 const statusHints: Record<string, string> = {
-  [ContentStatus.PUBLISHED]: "BÒ i viáº¿t hiá»�n thá»⬹ trÒªn website",
-  [ContentStatus.DRAFT]: "Chá»⬰ l� °u trong há»⬡ thá»��ng quáº£n trá»⬹",
-  [ContentStatus.HIDDEN]: "KhÒ´ng hiá»�n thá»⬹ ngoÒ i storefront",
-  [ContentStatus.ARCHIVED]: "Giữ dữ li�!u, khҴng xuất bản",
+  [ContentStatus.PUBLISHED]: "Bài viết hiển thị trên website",
+  [ContentStatus.DRAFT]: "Chỉ lưu trong hệ thống quản trị",
+  [ContentStatus.HIDDEN]: "Không hiển thị ngoài storefront",
+  [ContentStatus.ARCHIVED]: "Giữ dữ liệu, không xuất bản",
 }
 
-const DEFAULT_NEW_BLOG_MOCK_TITLE = "Xu H� ��:ng ҁo Blazer Nữ 2026: Mặc Sao Cho Sang MҠ Vẫn D�& Ứng Dụng"
+const DEFAULT_NEW_BLOG_MOCK_TITLE = "Xu Hướng Áo Blazer Nữ 2026: Mặc Sao Cho Sang Mà Vẫn Dễ Ứng Dụng"
 const DEFAULT_NEW_BLOG_MOCK_EXCERPT =
-  "Tá»⬢ng há»£p xu h� °á»⬺ng blazer ná»¯ má»⬺i nháº¥t 2026, cÒ¡ch chá»n form theo dÒ¡ng ng� °á»i vÒ  gá»£i Ò½ phá»��i ���á»�S nhanh cho ���i lÒ m, ���i ch� ¡i, dá»± sá»± kiá»⬡n."
-const DEFAULT_NEW_BLOG_MOCK_BODY_CONTENT = `<p>Òo blazer ná»¯ ���ang lÒ  item â���must-haveâ�� trong tá»§ ���á»�S cÒ´ng sá»Ÿ láº«n dáº¡o phá»��. N��m 2026, blazer khÒ´ng chá»⬰ dá»«ng á»Ÿ sá»± thanh lá»⬹ch mÒ  cÒ²n thiÒªn vá» tÒ­nh linh hoáº¡t: dá»⬦ phá»��i, dá»⬦ layer vÒ  há»£p nhiá»u hoÒ n cáº£nh.</p>
-<h3>1. VҬ Sao Blazer Vẫn LҠ Item Chủ ��ạo?</h3>
-<ul><li><strong>DÃ¡Â»â€¦ phÃ¡Â»â€˜i:</strong> Ã„â€˜i lÃƒÂ m, Ã„â€˜i gÃ¡ÂºÂ·p khÃƒÂ¡ch, Ã„â€˜i cafe Ã„â€˜Ã¡Â»Âu hÃ¡Â»Â£p.</li><li><strong>TÃƒÂ´n dÃƒÂ¡ng:</strong> tÃ¡ÂºÂ¡o khung vai gÃ¡Â»Ân, tÃ¡Â»â€¢ng thÃ¡Â»Æ’ chÃ¡Â»â€°n chu hÃ†Â¡n.</li><li><strong>Ã„Âa mÃƒÂ¹a:</strong> phÃ¡Â»â€˜i Ã„â€˜Ã†Â°Ã¡Â»Â£c cÃ¡ÂºÂ£ xuÃƒÂ¢n, thu, Ã„â€˜ÃƒÂ´ng nhÃ¡ÂºÂ¹.</li></ul>
-<h3>2. 5 KiÃ¡Â»Æ’u Blazer Ã„ÂÃƒÂ¡ng Mua NhÃ¡ÂºÂ¥t</h3>
-<ol><li><strong>Blazer form suҴng:</strong> hợp nhiều vҳc dҡng, d�& mặc hằng ngҠy.</li><li><strong>Blazer chiết eo:</strong> tҴn vҲng eo, hợp phong cҡch nữ tҭnh.</li><li><strong>Blazer oversize:</strong> trẻ trung, hợp style n��ng ������ng.</li><li><strong>Blazer tay lửng:</strong> nhẹ nhҠng, phҹ hợp mҹa nҳng.</li><li><strong>Blazer mҠu trung tҭnh:</strong> ���en, be, xҡm, navy d�& ph���i �����S.</li></ol>
-<h3>3. GÃ¡Â»Â£i ÃƒÂ PhÃ¡Â»â€˜i Ã„ÂÃ¡Â»â€œ Nhanh</h3>
-<p><strong>�i lÒ m:</strong> blazer + Ò¡o thun tr� ¡n + quáº§n tÒ¢y + loafer.</p>
-<p><strong>�i ch� ¡i:</strong> blazer oversize + Ò¡o hai dÒ¢y + quáº§n jeans + sneaker.</p>
-<p><strong>�i sá»± kiá»⬡n:</strong> blazer chiáº¿t eo + chÒ¢n vÒ¡y midi + giÒ y cao gÒ³t.</p>
-<h3>4. Cҡch Chọn Blazer Theo Dҡng Ng� �ời</h3>
-<ul><li><strong>Dҡng nhỏ:</strong> � �u tiҪn blazer vừa vai, chiều dҠi trҪn hҴng.</li><li><strong>Dҡng ���ầy ���ặn:</strong> chọn form suҴng, mҠu t���i, chất vải ���ứng.</li><li><strong>Dҡng cao:</strong> cҳ th�� thử oversize hoặc blazer dҠi.</li></ul>
-<h3>5. Máº¹o Báº£o Quáº£n �á»� Blazer LuÒ´n �áº¹p</h3>
-<ul><li>Dҹng mҳc treo cҳ ����!m ����� giữ phom vai.</li><li>Hạn chế giặt mҡy; � �u tiҪn giặt hấp hoặc giặt tay nhẹ.</li><li>Ủi h� �i �x nhi�!t ������ thấp ����� trҡnh bҳng mặt vải.</li></ul>
+  "Tổng hợp xu hướng blazer nữ mới nhất 2026, cách chọn form theo dáng người và gợi ý phối đồ nhanh cho đi làm, đi chơi, dự sự kiện."
+const DEFAULT_NEW_BLOG_MOCK_BODY_CONTENT = `<p>Áo blazer nữ đang là item "must-have" trong tủ đồ công sở lẫn dạo phố. Năm 2026, blazer không chỉ dừng ở sự thanh lịch mà còn thiên về tính linh hoạt: dễ phối, dễ layer và hợp nhiều hoàn cảnh.</p>
+<h3>1. Vì Sao Blazer Vẫn Là Item Chủ Đạo?</h3>
+<ul><li><strong>Dễ phối:</strong> đi làm, đi gặp khách, đi cafe đều hợp.</li><li><strong>Tôn dáng:</strong> tạo khung vai gọn, tổng thể chỉnh chu hơn.</li><li><strong>Đa mùa:</strong> phối được cả xuân, thu, đông nhẹ.</li></ul>
+<h3>2. 5 Kiểu Blazer Đáng Mua Nhất</h3>
+<ol><li><strong>Blazer form suông:</strong> hợp nhiều vóc dáng, dễ mặc hàng ngày.</li><li><strong>Blazer chiết eo:</strong> tôn vòng eo, hợp phong cách nữ tính.</li><li><strong>Blazer oversize:</strong> trẻ trung, hợp style năng động.</li><li><strong>Blazer tay lửng:</strong> nhẹ nhàng, phù hợp mùa nóng.</li><li><strong>Blazer màu trung tính:</strong> đen, be, xám, navy dễ phối đồ.</li></ol>
+<h3>3. Gợi Ý Phối Đồ Nhanh</h3>
+<p><strong>Đi làm:</strong> blazer + áo thun trơn + quần tây + loafer.</p>
+<p><strong>Đi chơi:</strong> blazer oversize + áo hai dây + quần jeans + sneaker.</p>
+<p><strong>Đi sự kiện:</strong> blazer chiết eo + chân váy midi + giày cao gót.</p>
 <h3>Kết Luận</h3>
-<p>Blazer lҠ khoản ���ầu t� � thời trang thҴng minh vҬ tҭnh ứng dụng cao vҠ bền xu h� ��:ng. Ch�0 cần chọn ���Һng form, mҠu vҠ chất li�!u, anh/ch�9 cҳ th�� dҹng m���t chiếc blazer cho rất nhiều hoҠn cảnh khҡc nhau.</p>`
+<p>Blazer là khoản đầu tư thời trang thông minh vì tính ứng dụng cao và bền xu hướng.</p>`
 
 const DEFAULT_NEW_BLOG_MOCK_FOOTER_CONTENT = `<div style="margin-top:20px; border:1px solid #e5e7eb; border-radius:14px; padding:16px 18px; background:#fafaf9;">
-  <h3 style="margin:0 0 10px 0; font-size:20px; font-weight:700; color:#1f2937;">ThÒ´ng Tin LiÒªn Há»⬡</h3>
+  <h3 style="margin:0 0 10px 0; font-size:20px; font-weight:700; color:#1f2937;">Thông Tin Liên Hệ</h3>
   <p style="margin:0 0 8px 0; font-size:17px; font-weight:700; color:#111827;">Duky Store</p>
-  <p style="margin:6px 0; color:#374151; line-height:1.7;">Ã°Å¸â€œÅ¾ Hotline: <a href="tel:0900000000" style="color:#ea580c; text-decoration:none;">0900 000 000</a></p>
-  <p style="margin:6px 0; color:#374151; line-height:1.7;">â�⬰ï¸ Email: <a href="mailto:contact@duky.store" style="color:#ea580c; text-decoration:none;">contact@duky.store</a></p>
-  <p style="margin:6px 0; color:#374151; line-height:1.7;">Ã°Å¸Å’Â Website: <a href="https://duky.store" target="_blank" rel="noopener noreferrer" style="color:#ea580c; text-decoration:none;">https://duky.store</a></p>
-  <p style="margin:6px 0; color:#374151; line-height:1.7;">ðŸ�S �á»⬹a chá»⬰: 123 �� °á»ng ABC, Quáº­n XYZ, TP. Há»�S ChÒ­ Minh</p>
-  <div style="margin-top:12px; padding-top:10px; border-top:1px dashed #d6d3d1; color:#6b7280; font-size:13px;">CÃ¡ÂºÂ£m Ã†Â¡n bÃ¡ÂºÂ¡n Ã„â€˜ÃƒÂ£ theo dÃƒÂµi bÃƒÂ i viÃ¡ÂºÂ¿t. LiÃƒÂªn hÃ¡Â»â€¡ ngay Ã„â€˜Ã¡Â»Æ’ Ã„â€˜Ã†Â°Ã¡Â»Â£c tÃ†Â° vÃ¡ÂºÂ¥n nhanh vÃƒÂ  nhÃ¡ÂºÂ­n Ã†Â°u Ã„â€˜ÃƒÂ£i mÃ¡Â»â€ºi nhÃ¡ÂºÂ¥t.</div>
+  <p style="margin:6px 0; color:#374151; line-height:1.7;">Hotline: <a href="tel:0900000000" style="color:#ea580c; text-decoration:none;">0900 000 000</a></p>
+  <p style="margin:6px 0; color:#374151; line-height:1.7;">Email: <a href="mailto:contact@duky.store" style="color:#ea580c; text-decoration:none;">contact@duky.store</a></p>
+  <p style="margin:6px 0; color:#374151; line-height:1.7;">Website: <a href="https://duky.store" target="_blank" rel="noopener noreferrer" style="color:#ea580c; text-decoration:none;">https://duky.store</a></p>
+  <p style="margin:6px 0; color:#374151; line-height:1.7;">Địa chỉ: 123 Đường ABC, Quận XYZ, TP. Hồ Chí Minh</p>
+  <div style="margin-top:12px; padding-top:10px; border-top:1px dashed #d6d3d1; color:#6b7280; font-size:13px;">Cảm ơn bạn đã theo dõi bài viết. Liên hệ ngay để được tư vấn nhanh và nhận ưu đãi mới nhất.</div>
 </div>`
 
 function slugify(value: string) {
   return value
     .normalize("NFD")
     .replace(/[\u0300-\u036f]/g, "")
-    .replace(/Ã„â€˜/g, "d")
-    .replace(/Ã„Â/g, "D")
+    .replace(/Ä'/g, "d")
+    .replace(/Đ/g, "D")
     .toLowerCase()
     .replace(/[^a-z0-9]+/g, "-")
     .replace(/^-+|-+$/g, "")
@@ -356,7 +359,7 @@ function splitContentToBlocks(content?: string | null) {
 
 function inferBlockTypeFromHtml(html: string): "title" | "content" | "footer" {
   const normalized = html.toLowerCase()
-  if (normalized.includes("thÒ´ng tin liÒªn há»⬡") || normalized.includes("hotline:")) {
+  if (normalized.includes("thông tin liên hệ") || normalized.includes("hotline:")) {
     return "footer"
   }
   if (normalized.startsWith("<h1") || normalized.startsWith("<h2") || normalized.startsWith("<h3")) {
@@ -366,21 +369,536 @@ function inferBlockTypeFromHtml(html: string): "title" | "content" | "footer" {
 }
 
 function blockTypeLabel(type: "title" | "content" | "footer") {
-  if (type === "title") return "Block TiÒªu �á»"
-  if (type === "footer") return "Block Footer"
-  return "Block NÃ¡Â»â„¢i Dung"
+  if (type === "title") return "Block Tiêu Đề"
+  if (type === "footer") return "Block Footer Liên Hệ"
+  return "Block Nội Dung"
 }
 
+function toReusableBlockType(type: "title" | "content" | "footer"): BlogReusableBlockType {
+  if (type === "title") return "TITLE"
+  if (type === "footer") return "FOOTER"
+  return "CONTENT"
+}
+
+function toEditorBlockType(type?: BlogReusableBlockType | null): "title" | "content" | "footer" {
+  if (type === "TITLE") return "title"
+  if (type === "FOOTER") return "footer"
+  return "content"
+}
+
+function blockTypeFromNodeAttrs(attrs: Record<string, unknown>): "title" | "content" | "footer" {
+  const value = attrs.dukyBlockType
+  if (value === "title" || value === "footer" || value === "content") return value
+  return "content"
+}
+
+function stripLegacyBlockLabel(html: string) {
+  return html
+    .replace(/^\s*<div[^>]*data-duky-block-head[^>]*>[\s\S]*?<\/div>\s*/i, "")
+    .replace(
+      /^\s*<p>\s*<strong>\s*block\s+(?:tiêu\s*đề|nội\s*dung|footer\s+liên\s+hệ)\s*<\/strong>\s*<\/p>\s*/i,
+      ""
+    )
+    .replace(/^\s*<p>\s*[↑↓×\s]+\s*<\/p>\s*/i, "")
+    .trim()
+}
+
+function getTopLevelNodeInfo(props: NodeViewProps) {
+  if (typeof props.getPos !== "function") return null
+
+  const pos = props.getPos()
+  if (typeof pos !== "number") return null
+  const siblings: Array<{ node: typeof props.node; offset: number }> = []
+  let currentIndex = -1
+
+  props.editor.state.doc.forEach((node, offset, index) => {
+    siblings.push({ node, offset })
+    if (offset === pos) currentIndex = index
+  })
+
+  if (currentIndex < 0) return null
+  return { currentIndex, pos, siblings }
+}
+
+function moveBlockNode(props: NodeViewProps, direction: "up" | "down") {
+  const info = getTopLevelNodeInfo(props)
+  if (!info) return
+
+  const { currentIndex, pos, siblings } = info
+  const targetIndex = direction === "up" ? currentIndex - 1 : currentIndex + 1
+  const target = siblings[targetIndex]
+  if (!target) return
+
+  const node = props.node
+  const transaction = props.editor.state.tr.delete(pos, pos + node.nodeSize)
+
+  if (direction === "up") {
+    transaction.insert(target.offset, node)
+  } else {
+    transaction.insert(pos + target.node.nodeSize, node)
+  }
+
+  props.editor.view.dispatch(transaction)
+  props.editor.commands.focus()
+}
+
+function moveTopLevelNodeByIndex(editor: Editor, fromIndex: number, toIndex: number) {
+  const siblings: Array<{ node: typeof editor.state.doc; offset: number }> = []
+
+  editor.state.doc.forEach((node, offset) => {
+    siblings.push({ node, offset })
+  })
+
+  if (
+    fromIndex < 0 ||
+    toIndex < 0 ||
+    fromIndex >= siblings.length ||
+    toIndex >= siblings.length ||
+    fromIndex === toIndex
+  ) {
+    return
+  }
+
+  const source = siblings[fromIndex]
+  const target = siblings[toIndex]
+  const insertPosition = toIndex > fromIndex
+    ? target.offset + target.node.nodeSize
+    : target.offset
+  const transaction = editor.state.tr.delete(
+    source.offset,
+    source.offset + source.node.nodeSize
+  )
+
+  transaction.insert(transaction.mapping.map(insertPosition), source.node)
+  editor.view.dispatch(transaction)
+  editor.commands.focus()
+}
+
+function removeBlockNode(props: NodeViewProps) {
+  if (typeof props.getPos !== "function") return
+
+  const pos = props.getPos()
+  if (typeof pos !== "number") return
+  props.editor
+    .chain()
+    .focus()
+    .deleteRange({ from: pos, to: pos + props.node.nodeSize })
+    .run()
+}
+
+type SaveReusableBlockRequest = {
+  type: "title" | "content" | "footer"
+  html: string
+}
+
+function serializeBlockNodeContent(props: NodeViewProps) {
+  const document = props.editor.view.dom.ownerDocument
+  const container = document.createElement("div")
+  const fragment = DOMSerializer.fromSchema(props.editor.schema).serializeFragment(
+    props.node.content,
+    { document }
+  )
+
+  container.appendChild(fragment)
+  return stripLegacyBlockLabel(container.innerHTML)
+}
+
+function getSelectedDukyBlock(editor: Editor) {
+  const { selection } = editor.state
+  const { $from } = selection
+
+  if (!selection.empty) return null
+
+  for (let depth = $from.depth; depth > 0; depth -= 1) {
+    const node = $from.node(depth)
+    const isDukyBlock = Boolean(node.attrs.dukyBlock || node.attrs.dukyBlockType)
+
+    if (node.type.name === "blockquote" && isDukyBlock) {
+      return {
+        node,
+        depth,
+        contentStart: $from.start(depth),
+        contentEnd: $from.end(depth),
+      }
+    }
+  }
+
+  return null
+}
+
+function stripDukyBlockChromeText(text: string) {
+  return text
+    .replace(/block\s+(tiêu đề|nội dung|footer liên hệ)/gi, "")
+    .replace(/\s+/g, "")
+}
+
+function getDukyBlockChildAtSelection(editor: Editor, block: NonNullable<ReturnType<typeof getSelectedDukyBlock>>) {
+  const { $from } = editor.state.selection
+  const childDepth = block.depth + 1
+  const childStart = $from.depth >= childDepth ? $from.before(childDepth) : null
+  let childIndex = -1
+
+  for (let index = 0; index < block.node.childCount; index += 1) {
+    const child = block.node.child(index)
+    if (child === $from.parent || child.eq($from.parent)) {
+      childIndex = index
+      break
+    }
+  }
+
+  const foundChildFromParent = childIndex >= 0
+
+  if (childIndex < 0) {
+    childIndex = $from.index(block.depth)
+  }
+
+  if (!foundChildFromParent && typeof childStart === "number") {
+    let offset = 0
+    for (let index = 0; index < block.node.childCount; index += 1) {
+      if (block.contentStart + offset === childStart) {
+        childIndex = index
+        break
+      }
+      offset += block.node.child(index).nodeSize
+    }
+  }
+
+  const child = block.node.maybeChild(childIndex)
+
+  if (!child) return null
+
+  let childOffset = 0
+  for (let index = 0; index < childIndex; index += 1) {
+    childOffset += block.node.child(index).nodeSize
+  }
+
+  const from = block.contentStart + childOffset
+
+  return {
+    child,
+    childIndex,
+    from,
+    to: from + child.nodeSize,
+  }
+}
+
+function isEmptyEditableBlockChild(editor: Editor, block: NonNullable<ReturnType<typeof getSelectedDukyBlock>>, childIndex: number) {
+  const child = block.node.maybeChild(childIndex)
+  if (!child?.isTextblock) return false
+  if (child.textContent.replace(/\s+/g, "").length > 0) return false
+
+  const firstEditableChildIndex = block.node.childCount > 1 ? 1 : 0
+  if (childIndex < firstEditableChildIndex) return false
+
+  const hasAnotherEditableChild = Array.from({ length: block.node.childCount }).some((_, index) => {
+    if (index === childIndex || index < firstEditableChildIndex) return false
+    return Boolean(block.node.maybeChild(index)?.isTextblock)
+  })
+
+  return hasAnotherEditableChild
+}
+
+function deleteBlockChildByIndex(editor: Editor, block: NonNullable<ReturnType<typeof getSelectedDukyBlock>>, childIndex: number) {
+  let childOffset = 0
+  for (let index = 0; index < childIndex; index += 1) {
+    childOffset += block.node.child(index).nodeSize
+  }
+
+  const child = block.node.maybeChild(childIndex)
+  if (!child) return false
+
+  const from = block.contentStart + childOffset
+  editor.view.dispatch(editor.state.tr.delete(from, from + child.nodeSize))
+  editor.commands.focus()
+  return true
+}
+
+function shouldBlockDukyBoundaryDelete(editor: Editor, direction: "backward" | "forward") {
+  const block = getSelectedDukyBlock(editor)
+  if (!block) return false
+
+  const { selection } = editor.state
+  const { $from } = selection
+  const selectedChild = getDukyBlockChildAtSelection(editor, block)
+  if (!selectedChild) return false
+
+  if (direction === "backward") {
+    if ($from.parentOffset !== 0) return false
+
+    if (isEmptyEditableBlockChild(editor, block, selectedChild.childIndex)) {
+      return deleteBlockChildByIndex(editor, block, selectedChild.childIndex)
+    }
+
+    const previousChildIndex = selectedChild.childIndex - 1
+    if (isEmptyEditableBlockChild(editor, block, previousChildIndex)) {
+      return deleteBlockChildByIndex(editor, block, previousChildIndex)
+    }
+
+    const relativeCursor = Math.max(0, selection.from - block.contentStart)
+    const visibleTextBeforeCursor = stripDukyBlockChromeText(
+      block.node.textBetween(0, relativeCursor, "\n", "\ufffc")
+    )
+
+    return visibleTextBeforeCursor.length === 0
+  }
+
+  if ($from.parentOffset !== $from.parent.content.size) return false
+
+  if (isEmptyEditableBlockChild(editor, block, selectedChild.childIndex)) {
+    return deleteBlockChildByIndex(editor, block, selectedChild.childIndex)
+  }
+
+  const nextChildIndex = selectedChild.childIndex + 1
+  if (isEmptyEditableBlockChild(editor, block, nextChildIndex)) {
+    return deleteBlockChildByIndex(editor, block, nextChildIndex)
+  }
+
+  const relativeCursor = Math.max(0, selection.from - block.contentStart)
+  const visibleTextAfterCursor = stripDukyBlockChromeText(
+    block.node.textBetween(relativeCursor, block.node.content.size, "\n", "\ufffc")
+  )
+
+  return visibleTextAfterCursor.length === 0
+}
+
+const BLOCK_DRAG_DATA_TYPE = "application/x-duky-block-index"
+
+function isBlockDrag(event: React.DragEvent<HTMLElement>) {
+  return Array.from(event.dataTransfer.types).includes(BLOCK_DRAG_DATA_TYPE)
+}
+
+function getBlockDragScrollTarget(target: EventTarget | null): HTMLElement | Window {
+  if (!(target instanceof Element)) return window
+
+  let current = target instanceof HTMLElement ? target : target.parentElement
+
+  while (current) {
+    const style = window.getComputedStyle(current)
+    const canScrollY = /(auto|scroll|overlay)/.test(style.overflowY)
+
+    if (canScrollY && current.scrollHeight > current.clientHeight + 2) {
+      return current
+    }
+
+    current = current.parentElement
+  }
+
+  return window
+}
+
+function autoScrollDuringBlockDrag(event: React.DragEvent<HTMLElement>) {
+  const scrollTarget = getBlockDragScrollTarget(event.target)
+  const threshold = 120
+  const maxSpeed = 28
+  const bounds = scrollTarget instanceof HTMLElement
+    ? scrollTarget.getBoundingClientRect()
+    : { top: 0, bottom: window.innerHeight }
+  const distanceToTop = event.clientY - bounds.top
+  const distanceToBottom = bounds.bottom - event.clientY
+  let delta = 0
+
+  if (distanceToTop < threshold) {
+    delta = -Math.ceil((1 - Math.max(distanceToTop, 0) / threshold) * maxSpeed)
+  } else if (distanceToBottom < threshold) {
+    delta = Math.ceil((1 - Math.max(distanceToBottom, 0) / threshold) * maxSpeed)
+  }
+
+  if (!delta) return
+
+  if (scrollTarget instanceof HTMLElement) {
+    scrollTarget.scrollBy({ top: delta, behavior: "auto" })
+  } else {
+    window.scrollBy({ top: delta, behavior: "auto" })
+  }
+}
+
+function BlogBlockquoteNodeView(props: NodeViewProps) {
+  const type = blockTypeFromNodeAttrs(props.node.attrs)
+  const info = getTopLevelNodeInfo(props)
+  const isFirst = info?.currentIndex === 0
+  const isLast = info ? info.currentIndex === info.siblings.length - 1 : false
+  const isDukyBlock = Boolean(props.node.attrs.dukyBlock || props.node.attrs.dukyBlockType)
+
+  const handleDragStart = (event: React.DragEvent<HTMLButtonElement>) => {
+    const currentInfo = getTopLevelNodeInfo(props)
+    if (!currentInfo) return
+
+    event.stopPropagation()
+    event.dataTransfer.effectAllowed = "move"
+    event.dataTransfer.setData(BLOCK_DRAG_DATA_TYPE, String(currentInfo.currentIndex))
+    event.dataTransfer.setData("text/plain", String(currentInfo.currentIndex))
+  }
+
+  const handleDragOver = (event: React.DragEvent<HTMLElement>) => {
+    if (!isBlockDrag(event)) return
+
+    event.preventDefault()
+    event.dataTransfer.dropEffect = "move"
+    autoScrollDuringBlockDrag(event)
+  }
+
+  const handleDrop = (event: React.DragEvent<HTMLElement>) => {
+    const rawIndex = event.dataTransfer.getData(BLOCK_DRAG_DATA_TYPE)
+    if (!rawIndex) return
+
+    const fromIndex = Number(rawIndex)
+    const currentInfo = getTopLevelNodeInfo(props)
+    if (!Number.isFinite(fromIndex) || !currentInfo) return
+
+    event.preventDefault()
+    event.stopPropagation()
+    moveTopLevelNodeByIndex(props.editor, fromIndex, currentInfo.currentIndex)
+  }
+
+  const handleSaveReusableBlock = () => {
+    const html = serializeBlockNodeContent(props)
+    const storage = props.editor.storage as unknown as Record<string, unknown>
+    const blockquoteStorage = storage.blockquote as
+      | { onSaveReusableBlock?: (data: SaveReusableBlockRequest) => void }
+      | undefined
+    const saveBlock = blockquoteStorage?.onSaveReusableBlock as
+      | ((data: SaveReusableBlockRequest) => void)
+      | undefined
+
+    if (!html || !saveBlock) return
+    saveBlock({ type, html })
+  }
+
+  if (!isDukyBlock) {
+    return (
+      <NodeViewWrapper as="blockquote">
+        <NodeViewContent />
+      </NodeViewWrapper>
+    )
+  }
+
+  return (
+    <NodeViewWrapper
+      as="blockquote"
+      data-duky-block="true"
+      data-duky-block-type={type}
+      onDragOver={handleDragOver}
+      onDrop={handleDrop}
+    >
+      <div
+        contentEditable={false}
+        className="mb-3 flex items-center justify-between gap-3 rounded-xl bg-stone-50 px-2.5 py-1.5"
+      >
+        <span className="rounded-full bg-white px-2.5 py-1 text-[11px] font-semibold uppercase tracking-wide text-stone-500 shadow-sm">
+          {blockTypeLabel(type)}
+        </span>
+        <div className="flex items-center gap-1">
+          <button
+            type="button"
+            draggable
+            onMouseDown={(event) => event.stopPropagation()}
+            onDragStart={handleDragStart}
+            onClick={(event) => event.preventDefault()}
+            className="flex size-7 cursor-grab items-center justify-center rounded-full border border-stone-200 bg-white text-stone-500 transition hover:border-orange-300 hover:bg-orange-50 hover:text-orange-700 active:cursor-grabbing"
+            title="Kéo thả để đổi vị trí block"
+            aria-label="Kéo thả để đổi vị trí block"
+          >
+            <IconGripVertical className="size-4" />
+          </button>
+          <button
+            type="button"
+            disabled={isFirst}
+            onMouseDown={(event) => event.preventDefault()}
+            onClick={() => moveBlockNode(props, "up")}
+            className="flex size-7 items-center justify-center rounded-full border border-stone-200 bg-white text-stone-600 transition hover:border-orange-300 hover:bg-orange-50 hover:text-orange-700 disabled:cursor-not-allowed disabled:opacity-40"
+            title="Di chuyển block lên"
+            aria-label="Di chuyển block lên"
+          >
+            <IconArrowUp className="size-4" />
+          </button>
+          <button
+            type="button"
+            disabled={isLast}
+            onMouseDown={(event) => event.preventDefault()}
+            onClick={() => moveBlockNode(props, "down")}
+            className="flex size-7 items-center justify-center rounded-full border border-stone-200 bg-white text-stone-600 transition hover:border-orange-300 hover:bg-orange-50 hover:text-orange-700 disabled:cursor-not-allowed disabled:opacity-40"
+            title="Di chuyển block xuống"
+            aria-label="Di chuyển block xuống"
+          >
+            <IconArrowDown className="size-4" />
+          </button>
+          <button
+            type="button"
+            onMouseDown={(event) => event.preventDefault()}
+            onClick={handleSaveReusableBlock}
+            className="flex size-7 items-center justify-center rounded-full border border-stone-200 bg-white text-stone-600 transition hover:border-orange-300 hover:bg-orange-50 hover:text-orange-700"
+            title="Lưu block để dùng lại"
+            aria-label="Lưu block để dùng lại"
+          >
+            <IconDeviceFloppy className="size-4" />
+          </button>
+          <button
+            type="button"
+            onMouseDown={(event) => event.preventDefault()}
+            onClick={() => removeBlockNode(props)}
+            className="flex size-7 items-center justify-center rounded-full border border-red-200 bg-white text-red-500 transition hover:border-red-300 hover:bg-red-50"
+            title="Xóa block"
+            aria-label="Xóa block"
+          >
+            <IconTrash className="size-4" />
+          </button>
+        </div>
+      </div>
+      <NodeViewContent className="[&>p:first-child]:hidden" />
+    </NodeViewWrapper>
+  )
+}
+
+const BlogBlockquote = Blockquote.extend({
+  addStorage() {
+    return {
+      onSaveReusableBlock: null as
+        | ((data: SaveReusableBlockRequest) => void)
+        | null,
+    }
+  },
+
+  addAttributes() {
+    return {
+      ...this.parent?.(),
+      dukyBlock: {
+        default: null,
+        parseHTML: (element) => element.getAttribute("data-duky-block"),
+        renderHTML: (attributes) =>
+          attributes.dukyBlock ? { "data-duky-block": attributes.dukyBlock } : {},
+      },
+      dukyBlockType: {
+        default: null,
+        parseHTML: (element) => element.getAttribute("data-duky-block-type"),
+        renderHTML: (attributes) =>
+          attributes.dukyBlockType ? { "data-duky-block-type": attributes.dukyBlockType } : {},
+      },
+    }
+  },
+
+  addNodeView() {
+    return ReactNodeViewRenderer(BlogBlockquoteNodeView)
+  },
+
+  addKeyboardShortcuts() {
+    return {
+      Backspace: () => shouldBlockDukyBoundaryDelete(this.editor, "backward"),
+      Delete: () => shouldBlockDukyBoundaryDelete(this.editor, "forward"),
+    }
+  },
+})
+
 function wrapHtmlAsBlock(html: string, type: "title" | "content" | "footer") {
-  return `<blockquote data-duky-block="true" data-duky-block-type="${type}"><p><strong>${blockTypeLabel(type)}</strong></p>${html}</blockquote>`
+  return `<blockquote data-duky-block="true" data-duky-block-type="${type}">${stripLegacyBlockLabel(html)}</blockquote>`
 }
 
 function unwrapBlockHtml(blockHtml: string) {
   const normalized = blockHtml.trim()
-  const matched = normalized.match(
-    /^<blockquote[^>]*>\s*<p>\s*<strong>\s*block[^<]*<\/strong>\s*<\/p>\s*([\s\S]*?)\s*<\/blockquote>$/i
+  const blockquoteWrapper = normalized.match(
+    /^<blockquote\b[^>]*>([\s\S]*)<\/blockquote>\s*$/i
   )
-  return matched ? matched[1].trim() : normalized
+  const raw = blockquoteWrapper ? blockquoteWrapper[1].trim() : normalized
+  return stripLegacyBlockLabel(raw)
 }
 
 function flattenNestedBlockWrappers(html: string) {
@@ -391,6 +909,9 @@ function flattenNestedBlockWrappers(html: string) {
   while (nestedPattern.test(next)) {
     next = next.replace(nestedPattern, "$1").trim()
   }
+
+  // Cleanup legacy action text rows accidentally persisted in old block markup.
+  next = stripLegacyBlockLabel(next.replace(/<p>\s*[↑↓×\s]+\s*<\/p>/gi, ""))
 
   return next
 }
@@ -424,9 +945,174 @@ function stripBlockWrappersForHtml(content?: string | null) {
   return blocks.map((block) => unwrapBlockHtml(block)).join("\n\n").trim()
 }
 
+function mergeHtmlClass(attrs: string, className: string) {
+  const classMatch = attrs.match(/\sclass=(["'])(.*?)\1/i)
+  if (!classMatch) return `${attrs} class="${className}"`
+
+  const quote = classMatch[1]
+  const existing = classMatch[2].split(/\s+/).filter(Boolean)
+  const next = [...existing]
+
+  className.split(/\s+/).filter(Boolean).forEach((item) => {
+    if (!next.includes(item)) next.push(item)
+  })
+
+  return attrs.replace(classMatch[0], ` class=${quote}${next.join(" ")}${quote}`)
+}
+
+function mergeHtmlStyle(attrs: string, style: string) {
+  const styleMatch = attrs.match(/\sstyle=(["'])(.*?)\1/i)
+  if (!styleMatch) return `${attrs} style="${style}"`
+
+  const quote = styleMatch[1]
+  const existing = styleMatch[2].trim()
+  const existingKeys = new Set(
+    existing
+      .split(";")
+      .map((rule) => rule.split(":")[0]?.trim().toLowerCase())
+      .filter(Boolean)
+  )
+  const additions = style
+    .split(";")
+    .map((rule) => rule.trim())
+    .filter((rule) => {
+      const key = rule.split(":")[0]?.trim().toLowerCase()
+      return key && !existingKeys.has(key)
+    })
+
+  if (!additions.length) return attrs
+
+  const nextStyle = [existing.replace(/;$/, ""), ...additions].filter(Boolean).join("; ")
+  return attrs.replace(styleMatch[0], ` style=${quote}${nextStyle}${quote}`)
+}
+
+function decorateHtmlTag(
+  html: string,
+  tagName: string,
+  className: string,
+  style: string
+) {
+  return html.replace(
+    new RegExp(`<${tagName}(\\s[^>]*)?>`, "gi"),
+    (_match, rawAttrs = "") => {
+      let attrs = rawAttrs as string
+      attrs = mergeHtmlClass(attrs, className)
+      attrs = mergeHtmlStyle(attrs, style)
+      return `<${tagName}${attrs}>`
+    }
+  )
+}
+
+function decorateBlogHtmlForPublish(html: string) {
+  let next = html.trim()
+  if (!next) return ""
+
+  next = decorateHtmlTag(
+    next,
+    "h1",
+    "duky-blog-heading duky-blog-h1",
+    "margin: 8px 0 22px; font-size: 38px; line-height: 1.12; font-weight: 800; letter-spacing: 0; color: #1c1917;"
+  )
+  next = decorateHtmlTag(
+    next,
+    "h2",
+    "duky-blog-heading duky-blog-h2",
+    "margin: 32px 0 16px; font-size: 30px; line-height: 1.18; font-weight: 800; letter-spacing: 0; color: #1c1917;"
+  )
+  next = decorateHtmlTag(
+    next,
+    "h3",
+    "duky-blog-heading duky-blog-h3",
+    "margin: 28px 0 12px; font-size: 23px; line-height: 1.25; font-weight: 700; letter-spacing: 0; color: #292524;"
+  )
+  next = decorateHtmlTag(
+    next,
+    "p",
+    "duky-blog-paragraph",
+    "margin: 16px 0; font-size: 16px; line-height: 1.85; color: #292524;"
+  )
+  next = decorateHtmlTag(
+    next,
+    "ul",
+    "duky-blog-list duky-blog-list-disc",
+    "margin: 16px 0; padding-left: 28px; list-style-type: disc;"
+  )
+  next = decorateHtmlTag(
+    next,
+    "ol",
+    "duky-blog-list duky-blog-list-decimal",
+    "margin: 16px 0; padding-left: 28px; list-style-type: decimal;"
+  )
+  next = decorateHtmlTag(
+    next,
+    "li",
+    "duky-blog-list-item",
+    "margin: 6px 0; padding-left: 4px; line-height: 1.75;"
+  )
+  next = decorateHtmlTag(
+    next,
+    "a",
+    "duky-blog-link",
+    "color: #c2410c; text-decoration: underline; text-underline-offset: 4px;"
+  )
+  next = decorateHtmlTag(
+    next,
+    "img",
+    "duky-blog-image",
+    "display: block; max-width: 100%; height: auto; margin: 28px auto; border-radius: 24px;"
+  )
+  next = decorateHtmlTag(
+    next,
+    "blockquote",
+    "duky-blog-quote",
+    "margin: 24px 0; padding: 16px 20px; border-left: 4px solid #fdba74; border-radius: 16px; background: #fff7ed; color: #292524;"
+  )
+  next = decorateHtmlTag(
+    next,
+    "table",
+    "duky-blog-table",
+    "width: 100%; margin: 24px 0; border-collapse: collapse;"
+  )
+  next = decorateHtmlTag(
+    next,
+    "th",
+    "duky-blog-table-head",
+    "border: 1px solid #e7e5e4; background: #f5f5f4; padding: 8px 12px; text-align: left; font-weight: 700;"
+  )
+  next = decorateHtmlTag(
+    next,
+    "td",
+    "duky-blog-table-cell",
+    "border: 1px solid #e7e5e4; padding: 8px 12px;"
+  )
+  next = decorateHtmlTag(
+    next,
+    "code",
+    "duky-blog-code",
+    "border-radius: 6px; background: #fff7ed; padding: 2px 6px; font-weight: 600; color: #ea580c;"
+  )
+  next = decorateHtmlTag(
+    next,
+    "pre",
+    "duky-blog-pre",
+    "margin: 20px 0; overflow: auto; border-radius: 16px; background: #1c1917; padding: 16px; color: #fed7aa;"
+  )
+  next = decorateHtmlTag(
+    next,
+    "hr",
+    "duky-blog-divider",
+    "margin: 32px 0; border: 0; border-top: 1px solid #e7e5e4;"
+  )
+
+  return next
+}
+
+function toPublishableBlogHtml(content?: string | null) {
+  return decorateBlogHtmlForPublish(stripBlockWrappersForHtml(content))
+}
+
 function toHtmlDraftFromContent(content?: string | null) {
-  const blocks = splitContentToBlocks(content).map((block) => prettyHtmlForEditor(unwrapBlockHtml(block)))
-  return blocks.join(`\n${CONTENT_BLOCK_SEPARATOR}\n`).trim()
+  return prettyHtmlForEditor(toPublishableBlogHtml(content))
 }
 
 function toContentFromHtmlDraft(htmlDraft: string) {
@@ -528,6 +1214,16 @@ function statusBadgeClassName(status?: string) {
   return "border-orange-200 bg-orange-50 text-orange-700"
 }
 
+function feedbackToastClassName(tone?: Feedback["tone"]) {
+  if (tone === "success") {
+    return "border-emerald-200 bg-emerald-50 text-emerald-700 shadow-emerald-900/10"
+  }
+  if (tone === "error") {
+    return "border-red-200 bg-red-50 text-red-700 shadow-red-900/10"
+  }
+  return "border-orange-200 bg-orange-50 text-orange-800 shadow-orange-900/10"
+}
+
 function FieldError({ message }: { message?: string }) {
   if (!message) return null
   return <p className="text-xs font-medium text-destructive">{message}</p>
@@ -585,11 +1281,13 @@ function MetaBox({
 
 function EditorButton({
   active,
+  disabled,
   children,
   label,
   onClick,
 }: {
   active?: boolean
+  disabled?: boolean
   children: React.ReactNode
   label: string
   onClick: () => void
@@ -600,8 +1298,9 @@ function EditorButton({
       aria-label={label}
       title={label}
       onClick={onClick}
+      disabled={disabled}
       className={cn(
-        "flex size-9 items-center justify-center rounded-xl text-stone-600 transition hover:bg-orange-50 hover:text-orange-700",
+        "flex size-9 items-center justify-center rounded-xl text-stone-600 transition hover:bg-orange-50 hover:text-orange-700 disabled:cursor-not-allowed disabled:opacity-40 disabled:hover:bg-transparent disabled:hover:text-stone-500",
         active && "bg-orange-100 text-orange-700"
       )}
     >
@@ -753,8 +1452,8 @@ function ColorToolbarControl({
         </button>
         <button
           type="button"
-          aria-label={`Ã„ÂÃ¡Â»â€¢i nhanh ${label}`}
-          title={`Ã„ÂÃ¡Â»â€¢i nhanh ${label}`}
+          aria-label={`Đổi nhanh ${label}`}
+          title={`Đổi nhanh ${label}`}
           onMouseDown={(event) => event.preventDefault()}
           onClick={cycleColor}
           className="mx-1 size-6 rounded-full border border-white shadow-sm ring-1 ring-stone-200 transition hover:scale-105"
@@ -762,8 +1461,8 @@ function ColorToolbarControl({
         />
         <button
           type="button"
-          aria-label={`Má»Ÿ báº£ng ${label}`}
-          title={`Má»Ÿ báº£ng ${label}`}
+          aria-label={`Mở bảng ${label}`}
+          title={`Mở bảng ${label}`}
           onMouseDown={(event) => event.preventDefault()}
           onClick={() => setOpen((current) => !current)}
           className={cn(
@@ -898,7 +1597,7 @@ function TableDropdown({ editor }: { editor: Editor | null }) {
           className={tableActionClass}
         >
           <IconTableColumn className="size-4" />
-          <span>ThÃƒÂªm cÃ¡Â»â„¢t bÃƒÂªn phÃ¡ÂºÂ£i</span>
+          <span>Thêm cột bên phải</span>
         </button>
         <button
           type="button"
@@ -907,7 +1606,7 @@ function TableDropdown({ editor }: { editor: Editor | null }) {
           className={tableActionClass}
         >
           <IconTableRow className="size-4" />
-          <span>XÒ³a hÒ ng hiá»⬡n táº¡i</span>
+          <span>XÒ³a hÒ ng hiá»⬡n tại</span>
         </button>
         <button
           type="button"
@@ -916,7 +1615,7 @@ function TableDropdown({ editor }: { editor: Editor | null }) {
           className={tableActionClass}
         >
           <IconTableColumn className="size-4" />
-          <span>XÃƒÂ³a cÃ¡Â»â„¢t hiÃ¡Â»â€¡n tÃ¡ÂºÂ¡i</span>
+          <span>Xóa cột hiện tại</span>
         </button>
         <button
           type="button"
@@ -978,8 +1677,11 @@ function BlogRichTextEditor({
     addPostTitleBlock: () => void
     addContentBlock: () => void
     addContactFooterBlock: () => void
-    reusableBlocks: ReusableContentBlock[]
+    moveBlock: (fromIndex: number, toIndex: number) => void
+    removeBlock: (index: number) => void
+    reusableBlocks: BlogReusableBlock[]
     onSelectReusableBlock: (blockId: string) => void
+    onSaveReusableBlock: (data: SaveReusableBlockRequest) => void
   }
 }) {
   const [editorMode, setEditorMode] = React.useState<"visual" | "html" | "preview">("visual")
@@ -999,12 +1701,14 @@ function BlogRichTextEditor({
     immediatelyRender: false,
     extensions: [
       StarterKit.configure({
+        blockquote: false,
         heading: {
           levels: [1, 2, 3],
         },
         link: false,
         underline: false,
       }),
+      BlogBlockquote,
       Underline,
       TextStyle,
       FontFamily,
@@ -1059,7 +1763,7 @@ function BlogRichTextEditor({
         },
       }),
       Placeholder.configure({
-        placeholder: "Bắt ���ầu viết n���i dung bҠi viết...",
+        placeholder: "Bắt ���ầu viết n���i dung bҠi viết...",
       }),
     ],
     content: value ?? "",
@@ -1075,6 +1779,17 @@ function BlogRichTextEditor({
       onChange(nextHtml)
     },
   })
+
+  React.useEffect(() => {
+    if (!editor) return
+    const storage = editor.storage as unknown as Record<
+      string,
+      { onSaveReusableBlock?: ((data: SaveReusableBlockRequest) => void) | null }
+    >
+    if (!storage.blockquote) return
+    storage.blockquote.onSaveReusableBlock =
+      blockControls?.onSaveReusableBlock ?? null
+  }, [blockControls?.onSaveReusableBlock, editor])
 
   const applyImageToEditor = React.useCallback(
     (image: {
@@ -1188,7 +1903,7 @@ function BlogRichTextEditor({
   )
 
   const previewHtml = React.useMemo(
-    () => prettyHtmlForEditor(stripBlockWrappersForHtml(editor?.getHTML() ?? value ?? "")),
+    () => toPublishableBlogHtml(editor?.getHTML() ?? value ?? ""),
     [editor, value, htmlDraft]
   )
 
@@ -1364,7 +2079,7 @@ function BlogRichTextEditor({
               className="rounded-full border-stone-300"
               onClick={blockControls.addPostTitleBlock}
             >
-              + Block TiÒªu �á»
+              + Block Tiêu Đề
             </Button>
             <Button
               type="button"
@@ -1373,7 +2088,7 @@ function BlogRichTextEditor({
               className="rounded-full border-stone-300"
               onClick={blockControls.addContentBlock}
             >
-              + Block NÃ¡Â»â„¢i Dung
+              + Block Nội Dung
             </Button>
             <Button
               type="button"
@@ -1382,7 +2097,7 @@ function BlogRichTextEditor({
               className="rounded-full border-stone-300"
               onClick={blockControls.addContactFooterBlock}
             >
-              + Block Footer LiÒªn Há»⬡
+              + Block Footer Liên Hệ
             </Button>
             <select
               defaultValue=""
@@ -1418,10 +2133,10 @@ function BlogRichTextEditor({
           }}
           className="h-9 rounded-xl border border-stone-200 bg-white px-3 text-sm text-stone-700 outline-none transition focus:border-orange-300 focus:ring-2 focus:ring-orange-100"
         >
-          <option value="paragraph">Ã„ÂoÃ¡ÂºÂ¡n vÃ„Æ’n</option>
-          <option value="h1">TiÃƒÂªu Ã„â€˜Ã¡Â»Â 1</option>
-          <option value="h2">TiÃƒÂªu Ã„â€˜Ã¡Â»Â 2</option>
-          <option value="h3">TiÃƒÂªu Ã„â€˜Ã¡Â»Â 3</option>
+          <option value="paragraph">Đoạn văn</option>
+          <option value="h1">Tiêu đề 1</option>
+          <option value="h2">Tiêu đề 2</option>
+          <option value="h3">Tiêu đề 3</option>
         </select>
 
         <select
@@ -1481,7 +2196,7 @@ function BlogRichTextEditor({
 
         <EditorDivider />
         <EditorButton
-          label="In Ã„â€˜Ã¡ÂºÂ­m"
+          label="In đậm"
           active={toolbarState.bold}
           onClick={() => editor?.chain().focus().toggleBold().run()}
         >
@@ -1539,7 +2254,7 @@ function BlogRichTextEditor({
           <IconList className="size-4" />
         </EditorButton>
         <EditorButton
-          label="Danh sÃƒÂ¡ch sÃ¡Â»â€˜"
+          label="Danh sách số"
           active={toolbarState.orderedList}
           onClick={() => editor?.chain().focus().toggleOrderedList().run()}
         >
@@ -1569,28 +2284,28 @@ function BlogRichTextEditor({
 
         <EditorDivider />
         <EditorButton
-          label="CÃ„Æ’n trÃƒÂ¡i"
+          label="Căn trái"
           active={toolbarState.alignLeft}
           onClick={() => editor?.chain().focus().setTextAlign("left").run()}
         >
           <IconTextWrap className="size-4" />
         </EditorButton>
         <EditorButton
-          label="CÃ„Æ’n giÃ¡Â»Â¯a"
+          label="Căn giữa"
           active={toolbarState.alignCenter}
           onClick={() => editor?.chain().focus().setTextAlign("center").run()}
         >
           <IconTextSize className="size-4" />
         </EditorButton>
         <EditorButton
-          label="CÃ„Æ’n phÃ¡ÂºÂ£i"
+          label="Căn phải"
           active={toolbarState.alignRight}
           onClick={() => editor?.chain().focus().setTextAlign("right").run()}
         >
           <IconTextDirectionRtl className="size-4" />
         </EditorButton>
         <EditorButton
-          label="CÃ„Æ’n Ã„â€˜Ã¡Â»Âu"
+          label="Căn đều"
           active={toolbarState.alignJustify}
           onClick={() => editor?.chain().focus().setTextAlign("justify").run()}
         >
@@ -1628,7 +2343,7 @@ function BlogRichTextEditor({
         </EditorButton>
         {toolbarState.imageActive ? (
           <EditorButton
-            label="Sửa ảnh ���ang chọn"
+            label="Sửa ảnh ���ang chọn"
             onClick={() => {
               setImageActionMode("replace")
               const imageAttrs = editor?.getAttributes("image") as
@@ -1652,26 +2367,26 @@ function BlogRichTextEditor({
 
         <EditorDivider />
         <EditorButton
-          label="TiҪu ���ề nhỏ"
+          label="TiҪu ���ề nhỏ"
           active={toolbarState.heading3}
           onClick={() => editor?.chain().focus().toggleHeading({ level: 3 }).run()}
         >
           <IconH3 className="size-4" />
         </EditorButton>
         <EditorButton
-          label="�� °á»ng phÒ¢n cÒ¡ch"
+          label="�� °á»ng phÒ¢n cÒ¡ch"
           onClick={() => editor?.chain().focus().setHorizontalRule().run()}
         >
           <IconLineDashed className="size-4" />
         </EditorButton>
         <EditorButton
-          label="XuÃ¡Â»â€˜ng dÃƒÂ²ng"
+          label="Xuống dòng"
           onClick={() => editor?.chain().focus().setHardBreak().run()}
         >
           <IconCornerDownLeft className="size-4" />
         </EditorButton>
         <EditorButton
-          label="XÃƒÂ³a Ã„â€˜Ã¡Â»â€¹nh dÃ¡ÂºÂ¡ng"
+          label="Xóa định dạng"
           onClick={() => editor?.chain().focus().unsetAllMarks().clearNodes().run()}
         >
           <IconClearFormatting className="size-4" />
@@ -1687,7 +2402,7 @@ function BlogRichTextEditor({
         >
           <div className="flex items-center gap-1 rounded-2xl border border-stone-200 bg-white p-1 shadow-xl">
             <EditorButton
-              label="In Ã„â€˜Ã¡ÂºÂ­m"
+              label="In đậm"
               active={toolbarState.bold}
               onClick={() => editor.chain().focus().toggleBold().run()}
             >
@@ -1815,7 +2530,7 @@ function BlogRichTextEditor({
             applyImageToEditor({ url })
           }
         }}
-        title="Chọn ảnh chҨn vҠo n���i dung bҠi viết"
+        title="Chọn ảnh chҨn vҠo n���i dung bҠi viết"
       />
       </>
       ) : editorMode === "html" ? (
@@ -1849,7 +2564,7 @@ function BlogRichTextEditor({
               onClick={formatHtmlDraft}
               className="h-8 rounded-md border border-orange-300 bg-orange-50 px-2.5 text-xs font-semibold text-orange-700 transition hover:bg-orange-100"
             >
-              LÃƒÂ m Ã„â€˜Ã¡ÂºÂ¹p HTML
+              Làm đẹp HTML
             </button>
           </div>
           <Textarea
@@ -1863,11 +2578,11 @@ function BlogRichTextEditor({
           />
         </div>
       ) : (
-        <div className="min-h-[680px] border-b border-stone-200 bg-white p-6">
+        <div className="min-h-[680px] border-b border-stone-200 bg-[#f7f7f5] px-4 py-8">
           <article
-            className="prose prose-stone max-w-none"
+            className="mx-auto max-w-3xl rounded-[28px] bg-white px-7 py-8 shadow-sm ring-1 ring-stone-200 md:px-10 md:py-10"
             dangerouslySetInnerHTML={{
-              __html: previewHtml || "<p>ChÃ†Â°a cÃƒÂ³ nÃ¡Â»â„¢i dung Ã„â€˜Ã¡Â»Æ’ preview.</p>",
+              __html: previewHtml || "<p>Chưa có nội dung để preview.</p>",
             }}
           />
         </div>
@@ -1939,24 +2654,37 @@ export default function BlogPostDetailPage() {
     () => splitContentToBlocks(preview.content),
     [preview.content]
   )
-  const [reusableBlocks, setReusableBlocks] = React.useState<ReusableContentBlock[]>([])
+  const [reusableBlocks, setReusableBlocks] = React.useState<BlogReusableBlock[]>([])
+  const [saveBlockDialog, setSaveBlockDialog] = React.useState<{
+    open: boolean
+    type: "title" | "content" | "footer"
+    html: string
+    name: string
+    description: string
+    isSaving: boolean
+  }>({
+    open: false,
+    type: "content",
+    html: "",
+    name: "",
+    description: "",
+    isSaving: false,
+  })
 
-  React.useEffect(() => {
+  const fetchReusableBlocks = React.useCallback(async () => {
     try {
-      const raw = window.localStorage.getItem(REUSABLE_BLOCKS_STORAGE_KEY)
-      if (!raw) return
-      const parsed = JSON.parse(raw) as ReusableContentBlock[]
-      if (Array.isArray(parsed)) {
-        setReusableBlocks(parsed)
-      }
+      const response = await blogService.getReusableBlocks({
+        limit: 200,
+        isActive: true,
+      })
+      setReusableBlocks(response.data)
     } catch (error) {
-      console.error("Failed to load reusable blocks", error)
+      console.error("Failed to fetch reusable blog blocks", error)
+      setFeedback({
+        message: "Không tải được reusable block toàn cục.",
+        tone: "error",
+      })
     }
-  }, [])
-
-  const persistReusableBlocks = React.useCallback((items: ReusableContentBlock[]) => {
-    setReusableBlocks(items)
-    window.localStorage.setItem(REUSABLE_BLOCKS_STORAGE_KEY, JSON.stringify(items))
   }, [])
 
   const insertContentBlock = React.useCallback(
@@ -1968,8 +2696,37 @@ export default function BlogPostDetailPage() {
     [preview.content, setValue]
   )
 
+  const moveBlock = React.useCallback(
+    (fromIndex: number, toIndex: number) => {
+      const blocks = [...splitContentToBlocks(preview.content)]
+      if (
+        fromIndex < 0 ||
+        toIndex < 0 ||
+        fromIndex >= blocks.length ||
+        toIndex >= blocks.length ||
+        fromIndex === toIndex
+      ) {
+        return
+      }
+      const [moved] = blocks.splice(fromIndex, 1)
+      blocks.splice(toIndex, 0, moved)
+      setValue("content", mergeBlocksToContent(blocks), { shouldDirty: true, shouldValidate: true })
+    },
+    [preview.content, setValue]
+  )
+
+  const removeBlock = React.useCallback(
+    (index: number) => {
+      const blocks = [...splitContentToBlocks(preview.content)]
+      if (index < 0 || index >= blocks.length) return
+      blocks.splice(index, 1)
+      setValue("content", mergeBlocksToContent(blocks), { shouldDirty: true, shouldValidate: true })
+    },
+    [preview.content, setValue]
+  )
+
   const addPostTitleBlock = React.useCallback(() => {
-    const title = (preview.title ?? "").trim() || "TiҪu ���ề bҠi viết"
+    const title = (preview.title ?? "").trim() || "TiҪu ���ề bҠi viết"
     insertContentBlock(`<h2>${title}</h2>`, "title")
   }, [insertContentBlock, preview.title])
 
@@ -1979,6 +2736,61 @@ export default function BlogPostDetailPage() {
       "footer"
     )
   }, [insertContentBlock])
+
+  const openSaveReusableBlockDialog = React.useCallback((data: SaveReusableBlockRequest) => {
+    setSaveBlockDialog({
+      open: true,
+      type: data.type,
+      html: wrapHtmlAsBlock(data.html, data.type),
+      name: blockTypeLabel(data.type),
+      description: "",
+      isSaving: false,
+    })
+  }, [])
+
+  const closeSaveReusableBlockDialog = React.useCallback(() => {
+    setSaveBlockDialog((current) => ({
+      ...current,
+      open: false,
+      isSaving: false,
+    }))
+  }, [])
+
+  const submitReusableBlock = React.useCallback(async () => {
+    const name = saveBlockDialog.name.trim()
+    if (!name || !saveBlockDialog.html.trim()) {
+      setFeedback({
+        message: "Nhập tên block trước khi lưu.",
+        tone: "error",
+      })
+      return
+    }
+
+    try {
+      setSaveBlockDialog((current) => ({ ...current, isSaving: true }))
+      const created = await blogService.createReusableBlock({
+        name,
+        description: saveBlockDialog.description.trim() || null,
+        html: saveBlockDialog.html,
+        type: toReusableBlockType(saveBlockDialog.type),
+        isActive: true,
+      })
+      setReusableBlocks((current) => [created, ...current])
+      setFeedback({
+        message: "Đã lưu reusable block toàn cục.",
+        tone: "success",
+      })
+      closeSaveReusableBlockDialog()
+      void fetchReusableBlocks()
+    } catch (error) {
+      console.error("Failed to save reusable block", error)
+      setFeedback({
+        message: "Không lưu được reusable block.",
+        tone: "error",
+      })
+      setSaveBlockDialog((current) => ({ ...current, isSaving: false }))
+    }
+  }, [closeSaveReusableBlockDialog, fetchReusableBlocks, saveBlockDialog])
 
   const selectedStatus = preview.status ?? ContentStatus.DRAFT
   const generatedSlug = preview.slug || slugify(preview.title || "bai-viet")
@@ -1995,17 +2807,19 @@ export default function BlogPostDetailPage() {
 
   const fetchOptions = React.useCallback(async () => {
     try {
-      const [categoryResponse, tagResponse] = await Promise.all([
+      const [categoryResponse, tagResponse, reusableBlockResponse] = await Promise.all([
         blogService.getCategories({ limit: 100 }),
         tagService.getTags({ limit: 100 }),
+        blogService.getReusableBlocks({ limit: 200, isActive: true }),
       ])
 
       setCategories(categoryResponse.data)
       setTags(tagResponse.data.filter((tag) => tag.type !== TagType.PRODUCT))
+      setReusableBlocks(reusableBlockResponse.data)
     } catch (error) {
       console.error("Failed to fetch blog options", error)
       setFeedback({
-        message: "KhҴng tải ���� �ợc danh mục hoặc tag blog.",
+        message: "KhҴng tải ���� �ợc danh mục hoặc tag blog.",
         tone: "error",
       })
     }
@@ -2057,7 +2871,7 @@ export default function BlogPostDetailPage() {
     } catch (error) {
       console.error("Failed to fetch blog post", error)
       setFeedback({
-        message: "KhҴng tải ���� �ợc chi tiết bҠi viết.",
+        message: "KhҴng tải ���� �ợc chi tiết bҠi viết.",
         tone: "error",
       })
     } finally {
@@ -2074,6 +2888,16 @@ export default function BlogPostDetailPage() {
     const timeout = window.setTimeout(fetchPost, 0)
     return () => window.clearTimeout(timeout)
   }, [fetchPost])
+
+  React.useEffect(() => {
+    if (!feedback) return
+
+    const timeout = window.setTimeout(() => {
+      setFeedback(null)
+    }, 5000)
+
+    return () => window.clearTimeout(timeout)
+  }, [feedback])
 
   const handleGenerateSlug = () => {
     const title = preview.title?.trim()
@@ -2109,7 +2933,7 @@ export default function BlogPostDetailPage() {
     } catch (error) {
       console.error("Failed to save blog post", error)
       setFeedback({
-        message: "ChÃ†Â°a lÃ†Â°u Ã„â€˜Ã†Â°Ã¡Â»Â£c bÃƒÂ i viÃ¡ÂºÂ¿t. KiÃ¡Â»Æ’m tra nÃ¡Â»â„¢i dung/API rÃ¡Â»â€œi thÃ¡Â»Â­ lÃ¡ÂºÂ¡i.",
+        message: "Chưa lưu được bài viết. Kiểm tra nội dung/API rồi thử lại.",
         tone: "error",
       })
     } finally {
@@ -2121,13 +2945,36 @@ export default function BlogPostDetailPage() {
     return (
       <div className="flex h-full items-center justify-center gap-3 p-10 text-muted-foreground">
         <IconLoader2 className="animate-spin" />
-        <span>��ang tải bҠi viết...</span>
+        <span>��ang tải bҠi viết...</span>
       </div>
     )
   }
 
   return (
     <form onSubmit={handleSubmit(onSubmit)} className="min-h-full bg-[#f7f7f5]">
+      {feedback ? (
+        <div className="fixed right-4 top-4 z-[80] w-[min(420px,calc(100vw-32px))]">
+          <div
+            className={cn(
+              "flex items-start gap-3 rounded-2xl border px-4 py-3 text-sm font-medium shadow-xl backdrop-blur",
+              feedbackToastClassName(feedback.tone)
+            )}
+            role="status"
+            aria-live="polite"
+          >
+            <span className="min-w-0 flex-1 leading-6">{feedback.message}</span>
+            <button
+              type="button"
+              onClick={() => setFeedback(null)}
+              className="flex size-6 shrink-0 items-center justify-center rounded-full text-current/70 transition hover:bg-white/70 hover:text-current"
+              aria-label="Đóng thông báo"
+            >
+              ×
+            </button>
+          </div>
+        </div>
+      ) : null}
+
       <div className="sticky top-0 z-30 rounded-2xl border border-stone-200 bg-white/95 px-4 py-3 shadow-sm backdrop-blur supports-[backdrop-filter]:bg-white/90 lg:px-5">
         <div className="flex flex-col gap-3 xl:flex-row xl:items-center xl:justify-between">
           <div className="flex min-w-0 items-center gap-3">
@@ -2148,10 +2995,10 @@ export default function BlogPostDetailPage() {
                   Blog
                 </Link>
                 <span>/</span>
-                <span>{isNew ? "BÒ i viáº¿t má»⬺i" : "Chá»⬰nh sá»­a"}</span>
+                <span>{isNew ? "Bài viết mới" : "Chỉnh sửa"}</span>
               </div>
               <h1 className="mt-1 truncate text-base font-semibold text-stone-950">
-                {isNew ? "Tạo bҠi viết" : "Ch�0nh sửa bҠi viết"}
+                {isNew ? "Tạo bài viết" : "Chỉnh sửa bài viết"}
               </h1>
             </div>
           </div>
@@ -2165,7 +3012,7 @@ export default function BlogPostDetailPage() {
               onClick={() => setIsPreviewOpen(true)}
             >
               <IconEye className="size-4" />
-              Xem tr� °á»⬺c
+              Xem trước
             </Button>
             {!isNew ? (
               <Button
@@ -2199,7 +3046,7 @@ export default function BlogPostDetailPage() {
               }}
             >
               <IconCheck className="size-4" />
-              CÒ´ng khai
+              Công khai
             </Button>
             <Button
               type="submit"
@@ -2212,7 +3059,7 @@ export default function BlogPostDetailPage() {
               ) : (
                 <IconDeviceFloppy className="size-4" />
               )}
-              {isSaving ? "�ang l� °u" : "Cáº­p nháº­t"}
+              {isSaving ? "Đang lưu" : "Cập nhật"}
             </Button>
           </div>
         </div>
@@ -2220,11 +3067,9 @@ export default function BlogPostDetailPage() {
 
       <div className="grid min-h-[calc(100vh-96px)] grid-cols-1 gap-5 py-5 lg:grid-cols-[minmax(0,1fr)_340px]">
         <main className="min-w-0">
-          <InlineFeedback message={feedback?.message ?? null} tone={feedback?.tone} />
-
           <section className="mx-auto max-w-[1060px]">
             <div className="mb-3 rounded-2xl border border-orange-200 bg-orange-50 px-4 py-3 text-xs text-orange-800 shadow-sm">
-              Báº£n ���ang soáº¡n sáº½ l� °u vÒ o há»⬡ thá»��ng Blog Duky. Khi chuyá»�n tráº¡ng thÒ¡i cÒ´ng khai, bÒ i viáº¿t sáº½ cÒ³ thá»� hiá»�n thá»⬹ trÒªn storefront.
+              Bản đang soạn sẽ lưu vào hệ thống Blog Duky. Khi chuyển trạng thái công khai, bài viết sẽ có thể hiển thị trên storefront.
             </div>
 
             <div className="rounded-t-2xl border border-stone-200 bg-white p-4 shadow-sm">
@@ -2232,7 +3077,7 @@ export default function BlogPostDetailPage() {
                 <div>
                   <Input
                     {...register("title")}
-                    placeholder="Nhập tiҪu ���ề bҠi viết"
+                    placeholder="Nhập tiêu đề bài viết"
                     className="h-12 rounded-xl border-stone-300 bg-white px-3 text-xl font-semibold tracking-tight shadow-none focus-visible:border-orange-400 focus-visible:ring-orange-200 md:text-[20px]"
                     aria-invalid={Boolean(errors.title)}
                   />
@@ -2242,7 +3087,7 @@ export default function BlogPostDetailPage() {
                 <div className="rounded-xl border border-stone-200 bg-stone-50 px-3 py-2">
                   <Textarea
                     {...register("excerpt")}
-                    placeholder="Nháº­p mÒ´ táº£ ngáº¯n ���á»� hiá»�n thá»⬹ á»Ÿ danh sÒ¡ch bÒ i viáº¿t vÒ  SEO..."
+                    placeholder="Nhập mô tả ngắn để hiển thị ở danh sách bài viết và SEO..."
                     className="min-h-16 resize-none rounded-none border-0 bg-transparent p-0 text-sm leading-6 text-stone-700 shadow-none focus-visible:ring-0"
                   />
                 </div>
@@ -2312,21 +3157,31 @@ export default function BlogPostDetailPage() {
                   }}
                   blockControls={{
                     addPostTitleBlock,
-                    addContentBlock: () => insertContentBlock("<p>Ná»™i dung block má»›i...</p>"),
+                    addContentBlock: () => insertContentBlock("<p>Nội dung block mới...</p>"),
                     addContactFooterBlock,
+                    moveBlock,
+                    removeBlock,
                     reusableBlocks,
                     onSelectReusableBlock: (blockId) => {
                       const selected = reusableBlocks.find((item) => item.id === blockId)
                       if (!selected) return
                       const nextBlocks = [
                         ...splitContentToBlocks(preview.content),
-                        ...splitContentToBlocks(selected.html),
+                        ...splitContentToBlocks(
+                          isBlockWrapperHtml(selected.html)
+                            ? selected.html
+                            : wrapHtmlAsBlock(
+                                selected.html,
+                                toEditorBlockType(selected.type)
+                              )
+                        ),
                       ]
                       setValue("content", mergeBlocksToContent(nextBlocks), {
                         shouldDirty: true,
                         shouldValidate: true,
                       })
                     },
+                    onSaveReusableBlock: openSaveReusableBlockDialog,
                   }}
                 />
               )}
@@ -2338,7 +3193,7 @@ export default function BlogPostDetailPage() {
             <MetaBox title="Tҳm tắt nhanh">
               <div className="grid gap-3 text-sm md:grid-cols-3">
                 <div className="rounded-2xl border border-stone-200 bg-stone-50 p-3">
-                  <p className="text-xs uppercase text-stone-500">TiÃƒÂªu Ã„â€˜Ã¡Â»Â</p>
+                  <p className="text-xs uppercase text-stone-500">Tiêu đề</p>
                   <p className="mt-1 font-semibold text-stone-900">
                     {preview.title?.length ?? 0} kҽ tự
                   </p>
@@ -2352,7 +3207,7 @@ export default function BlogPostDetailPage() {
                 <div className="rounded-2xl border border-stone-200 bg-stone-50 p-3">
                   <p className="text-xs uppercase text-stone-500">Tags</p>
                   <p className="mt-1 font-semibold text-stone-900">
-                    {selectedTagIds.length} tag Ã„â€˜ÃƒÂ£ chÃ¡Â»Ân
+                    {selectedTagIds.length} tag đã chọn
                   </p>
                 </div>
               </div>
@@ -2363,7 +3218,7 @@ export default function BlogPostDetailPage() {
                 <div className="rounded-2xl border border-orange-200 border-l-4 border-l-orange-400 bg-orange-50 p-3 text-sm text-orange-800">
                   <p className="font-semibold">Snippet preview</p>
                   <p className="mt-1 text-orange-700">
-                    {preview.seo?.metaTitle || preview.title || "TiÃƒÂªu Ã„â€˜Ã¡Â»Â SEO sÃ¡ÂºÂ½ hiÃ¡Â»Æ’n thÃ¡Â»â€¹ Ã¡Â»Å¸ Ã„â€˜ÃƒÂ¢y"}
+                    {preview.seo?.metaTitle || preview.title || "Tiêu đề SEO sẽ hiển thị ở đây"}
                   </p>
                   <p className="mt-1 font-mono text-xs text-orange-700">
                     /blog/{generatedSlug}
@@ -2374,7 +3229,7 @@ export default function BlogPostDetailPage() {
                     <Label>Meta title</Label>
                     <Input
                       {...register("seo.metaTitle")}
-                      placeholder="Mặc ����9nh lấy tiҪu ���ề bҠi viết"
+                      placeholder="Mặc ����9nh lấy tiҪu ���ề bҠi viết"
                       className="rounded-xl border-stone-300 focus-visible:ring-orange-200"
                     />
                   </div>
@@ -2391,14 +3246,14 @@ export default function BlogPostDetailPage() {
                   <Label>Meta description</Label>
                   <Textarea
                     {...register("seo.metaDescription")}
-                    placeholder="Mặc ����9nh lấy mҴ tả ngắn"
+                    placeholder="Mặc ����9nh lấy mҴ tả ngắn"
                     className="min-h-20 rounded-xl border-stone-300 focus-visible:ring-orange-200"
                   />
                 </div>
               </div>
             </MetaBox>
 
-            <MetaBox title="Thiết lập hi��n th�9 bҠi viết">
+            <MetaBox title="Thiết lập hi��n th�9 bҠi viết">
               <div className="grid gap-3 text-sm md:grid-cols-2">
                 <label className="flex items-center gap-3 rounded-xl border border-stone-200 bg-white px-3 py-2">
                   <input type="radio" defaultChecked className="accent-orange-600" />
@@ -2410,11 +3265,11 @@ export default function BlogPostDetailPage() {
                 </label>
                 <label className="flex items-center gap-3 rounded-xl border border-stone-200 bg-white px-3 py-2">
                   <input type="checkbox" defaultChecked className="accent-orange-600" />
-                  HiÃ¡Â»Æ’n thÃ¡Â»â€¹ Ã¡ÂºÂ£nh Ã„â€˜Ã¡ÂºÂ¡i diÃ¡Â»â€¡n
+                  Hiển thị ảnh đại diện
                 </label>
                 <label className="flex items-center gap-3 rounded-xl border border-stone-200 bg-white px-3 py-2">
                   <input type="checkbox" defaultChecked className="accent-orange-600" />
-                  HiÃ¡Â»Æ’n thÃ¡Â»â€¹ ngÃƒÂ y Ã„â€˜Ã„Æ’ng
+                  Hiển thị ngày đăng
                 </label>
               </div>
             </MetaBox>
@@ -2422,13 +3277,13 @@ export default function BlogPostDetailPage() {
         </main>
 
         <aside className="flex min-w-0 flex-col gap-3 rounded-3xl border border-stone-200 bg-white/70 p-3 shadow-sm backdrop-blur lg:self-start">
-          <Panel title="Ã¡ÂºÂ¢nh Ã„â€˜Ã¡ÂºÂ¡i diÃ¡Â»â€¡n" icon={<IconPhoto className="size-4" />}>
+          <Panel title="Ảnh đại diện" icon={<IconPhoto className="size-4" />}>
             <input type="hidden" {...register("coverMediaId")} />
             {coverUrl ? (
               <div className="overflow-hidden rounded-2xl border border-stone-200 bg-stone-100">
                 <img
                   src={coverUrl}
-                  alt={preview.title || "Ảnh ���ại di�!n bҠi viết"}
+                  alt={preview.title || "Ảnh ���ại di�!n bҠi viết"}
                   className="aspect-[4/3] w-full object-cover"
                 />
               </div>
@@ -2461,7 +3316,7 @@ export default function BlogPostDetailPage() {
                   setValue("coverMediaId", "", { shouldDirty: true })
                   setValue("seo.ogImageMediaId", "", { shouldDirty: true })
                 }}
-                aria-label="Xҳa ảnh ���ại di�!n"
+                aria-label="Xҳa ảnh ���ại di�!n"
               >
                 <IconTrash />
               </Button>
@@ -2487,7 +3342,7 @@ export default function BlogPostDetailPage() {
                       </SelectTrigger>
                       <SelectContent>
                         <SelectGroup>
-                          <SelectItem value={NO_CATEGORY}>Ch� °a phÒ¢n loáº¡i</SelectItem>
+                          <SelectItem value={NO_CATEGORY}>Ch� °a phÒ¢n loại</SelectItem>
                           {categories.map((category) => (
                             <SelectItem key={category.id} value={category.id}>
                               {category.name}
@@ -2515,7 +3370,7 @@ export default function BlogPostDetailPage() {
                           <SelectItem value={ContentStatus.DRAFT}>Tin nhÒ¡p</SelectItem>
                           <SelectItem value={ContentStatus.PUBLISHED}>CÒ´ng khai</SelectItem>
                           <SelectItem value={ContentStatus.HIDDEN}>Ẩn</SelectItem>
-                          <SelectItem value={ContentStatus.ARCHIVED}>L� °u trá»¯</SelectItem>
+                          <SelectItem value={ContentStatus.ARCHIVED}>L� °u trữ</SelectItem>
                         </SelectGroup>
                       </SelectContent>
                     </Select>
@@ -2529,7 +3384,7 @@ export default function BlogPostDetailPage() {
 
               <div className="grid gap-3 text-sm">
                 <div className="flex items-center justify-between gap-3">
-                  <span className="text-stone-500">NgÃƒÂ y Ã„â€˜Ã„Æ’ng</span>
+                  <span className="text-stone-500">Ngày đăng</span>
                   <span className="text-right font-medium text-stone-800">
                     {formatDate(post?.publishedAt)}
                   </span>
@@ -2568,7 +3423,7 @@ export default function BlogPostDetailPage() {
                 className="mt-3 w-full rounded-xl border-stone-300"
                 disabled
               >
-                Dá»⬹ch sang tiáº¿ng Anh
+                Dá»⬹ch sang tiếng Anh
               </Button>
             </div>
           </Panel>
@@ -2579,7 +3434,7 @@ export default function BlogPostDetailPage() {
                 <Label>Meta title</Label>
                 <Input
                   {...register("seo.metaTitle")}
-                  placeholder="MÃ¡ÂºÂ·c Ã„â€˜Ã¡Â»â€¹nh lÃ¡ÂºÂ¥y tiÃƒÂªu Ã„â€˜Ã¡Â»Â"
+                  placeholder="Mặc định lấy tiêu đề"
                   className="rounded-xl border-stone-300 focus-visible:ring-orange-200"
                 />
               </div>
@@ -2587,7 +3442,7 @@ export default function BlogPostDetailPage() {
                 <Label>Meta description</Label>
                 <Textarea
                   {...register("seo.metaDescription")}
-                  placeholder="Mặc ����9nh lấy mҴ tả ngắn"
+                  placeholder="Mặc ����9nh lấy mҴ tả ngắn"
                   className="min-h-24 rounded-xl border-stone-300 focus-visible:ring-orange-200"
                 />
               </div>
@@ -2641,7 +3496,7 @@ export default function BlogPostDetailPage() {
               </label>
               <label className="flex items-center gap-3 rounded-xl border border-stone-200 bg-white px-3 py-2 text-stone-600">
                 <input type="checkbox" defaultChecked className="accent-orange-600" />
-                Hiá»�n thá»⬹ breadcrumb
+                Hiá»�n thá»⬹ breadcrumb
               </label>
             </div>
           </Panel>
@@ -2654,7 +3509,7 @@ export default function BlogPostDetailPage() {
               </label>
               <label className="flex items-center gap-3 rounded-xl border border-stone-200 bg-white px-3 py-2">
                 <input type="checkbox" defaultChecked className="accent-orange-600" />
-                Hiá»�n thá»⬹ bÒ i viáº¿t liÒªn quan
+                Hiá»�n thá»⬹ bÒ i viết liÒªn quan
               </label>
             </div>
           </Panel>
@@ -2685,16 +3540,16 @@ export default function BlogPostDetailPage() {
       <Dialog open={isPreviewOpen} onOpenChange={setIsPreviewOpen}>
         <DialogContent className="max-h-[88vh] max-w-5xl overflow-auto">
           <DialogHeader>
-            <DialogTitle>Xem tr� °á»⬺c bÒ i viáº¿t</DialogTitle>
+            <DialogTitle>Xem tr� °á»⬺c bÒ i viết</DialogTitle>
             <DialogDescription>
-              Preview nhanh nÃ¡Â»â„¢i dung trÃ†Â°Ã¡Â»â€ºc khi lÃ†Â°u lÃƒÂªn backend.
+              Preview nhanh nội dung trước khi lưu lên backend.
             </DialogDescription>
           </DialogHeader>
           <article className="mx-auto flex max-w-3xl flex-col gap-6">
             {coverUrl ? (
               <img
                 src={coverUrl}
-                alt={preview.title || "Ảnh ���ại di�!n bҠi viết"}
+                alt={preview.title || "Ảnh ���ại di�!n bҠi viết"}
                 className="aspect-[16/8] w-full rounded-2xl object-cover"
               />
             ) : null}
@@ -2706,10 +3561,10 @@ export default function BlogPostDetailPage() {
                 {statusLabels[selectedStatus]}
               </Badge>
               <h2 className="text-3xl font-bold tracking-tight">
-                {preview.title || "TiҪu ���ề bҠi viết"}
+                {preview.title || "TiҪu ���ề bҠi viết"}
               </h2>
               <p className="text-muted-foreground">
-                {preview.excerpt || "MÒ´ táº£ ngáº¯n sáº½ hiá»�n thá»⬹ á»Ÿ ���Ò¢y."}
+                {preview.excerpt || "MÒ´ tả ngắn sẽ hiá»�n thá»⬹ ở ���Ò¢y."}
               </p>
             </header>
 
@@ -2727,10 +3582,78 @@ export default function BlogPostDetailPage() {
             <div
               className="prose prose-sm max-w-none rounded-2xl border bg-white p-6 leading-7 [&_code]:font-semibold [&_code]:text-orange-500 [&_pre]:m-0 [&_pre]:rounded-none [&_pre]:border-0 [&_pre]:bg-transparent [&_pre]:p-0 [&_pre]:text-inherit [&_pre_code]:border-0 [&_pre_code]:bg-transparent [&_pre_code]:p-0 [&_pre_code]:font-semibold [&_pre_code]:text-orange-500"
               dangerouslySetInnerHTML={{
-                __html: preview.content || "<p>NÃ¡Â»â„¢i dung bÃƒÂ i viÃ¡ÂºÂ¿t sÃ¡ÂºÂ½ hiÃ¡Â»Æ’n thÃ¡Â»â€¹ Ã¡Â»Å¸ Ã„â€˜ÃƒÂ¢y.</p>",
+                __html: preview.content || "<p>Nội dung bài viết sẽ hiển thị ở đây.</p>",
               }}
             />
           </article>
+        </DialogContent>
+      </Dialog>
+
+      <Dialog
+        open={saveBlockDialog.open}
+        onOpenChange={(open) => {
+          if (!open) closeSaveReusableBlockDialog()
+        }}
+      >
+        <DialogContent className="max-w-xl rounded-3xl">
+          <DialogHeader>
+            <DialogTitle>Lưu reusable block</DialogTitle>
+            <DialogDescription>
+              Block sẽ được lưu toàn cục để các bài viết khác có thể chèn lại.
+            </DialogDescription>
+          </DialogHeader>
+          <div className="space-y-4">
+            <div className="rounded-2xl border border-orange-100 bg-orange-50 px-4 py-3 text-sm text-orange-800">
+              Loại block: {blockTypeLabel(saveBlockDialog.type)}
+            </div>
+            <div className="space-y-2">
+              <Label>Tên block</Label>
+              <Input
+                value={saveBlockDialog.name}
+                onChange={(event) =>
+                  setSaveBlockDialog((current) => ({
+                    ...current,
+                    name: event.target.value,
+                  }))
+                }
+                className="rounded-xl border-stone-300 focus-visible:ring-orange-200"
+                placeholder="VD: Footer liên hệ Duky"
+              />
+            </div>
+            <div className="space-y-2">
+              <Label>Mô tả</Label>
+              <Textarea
+                value={saveBlockDialog.description}
+                onChange={(event) =>
+                  setSaveBlockDialog((current) => ({
+                    ...current,
+                    description: event.target.value,
+                  }))
+                }
+                className="min-h-28 rounded-xl border-stone-300 focus-visible:ring-orange-200"
+                placeholder="Ghi chú ngắn để admin biết block này dùng cho trường hợp nào."
+              />
+            </div>
+            <div className="flex justify-end gap-2 pt-2">
+              <Button
+                type="button"
+                variant="outline"
+                className="rounded-full"
+                onClick={closeSaveReusableBlockDialog}
+                disabled={saveBlockDialog.isSaving}
+              >
+                Hủy
+              </Button>
+              <Button
+                type="button"
+                className="rounded-full bg-orange-600 hover:bg-orange-700"
+                onClick={submitReusableBlock}
+                disabled={saveBlockDialog.isSaving}
+              >
+                {saveBlockDialog.isSaving ? "Đang lưu..." : "Lưu block"}
+              </Button>
+            </div>
+          </div>
         </DialogContent>
       </Dialog>
 
@@ -2747,6 +3670,3 @@ export default function BlogPostDetailPage() {
     </form>
   )
 }
-
-
-
