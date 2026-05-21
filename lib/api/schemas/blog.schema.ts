@@ -16,20 +16,6 @@ export const BlogMediaSchema = z.object({
   title: z.string().optional().nullable(),
 })
 
-export const BlogPostContentImageSchema = z.object({
-  id: z.string().optional(),
-  mediaId: z.string(),
-  sortOrder: z.number().optional().default(0),
-  altText: z.string().optional().nullable(),
-  title: z.string().optional().nullable(),
-  caption: z.string().optional().nullable(),
-  description: z.string().optional().nullable(),
-  credit: z.string().optional().nullable(),
-  linkUrl: z.string().optional().nullable(),
-  isFeatured: z.boolean().optional().default(false),
-  media: BlogMediaSchema.optional().nullable(),
-})
-
 export const BlogReusableBlockTypeSchema = z.enum([
   "TITLE",
   "CONTENT",
@@ -110,7 +96,6 @@ export const BlogPostSchema = z.object({
   categoryIds: z.array(z.string()).optional().default([]),
   tags: z.array(BlogTagSummarySchema).default([]),
   tagIds: z.array(z.string()).optional().default([]),
-  contentImages: z.array(BlogPostContentImageSchema).optional().default([]),
   seo: SeoSchema.optional().nullable(),
   createdAt: z.string().optional(),
   updatedAt: z.string().optional(),
@@ -138,22 +123,6 @@ export const CreateBlogPostPayloadSchema = z.object({
   status: z.nativeEnum(ContentStatus).optional().default("DRAFT"),
   categoryIds: z.array(z.string()).optional().default([]),
   tagIds: z.array(z.string()).optional().default([]),
-  contentImages: z
-    .array(
-      BlogPostContentImageSchema.pick({
-        mediaId: true,
-        sortOrder: true,
-        altText: true,
-        title: true,
-        caption: true,
-        description: true,
-        credit: true,
-        linkUrl: true,
-        isFeatured: true,
-      })
-    )
-    .optional()
-    .default([]),
   seo: SeoSchema.optional().nullable(),
 })
 
@@ -194,7 +163,6 @@ export type BlogCategorySummary = z.infer<typeof BlogCategorySummarySchema>
 export type BlogTagSummary = z.infer<typeof BlogTagSummarySchema>
 export type BlogCategory = z.infer<typeof BlogCategorySchema>
 export type BlogPost = z.infer<typeof BlogPostSchema>
-export type BlogPostContentImage = z.infer<typeof BlogPostContentImageSchema>
 export type CreateBlogCategoryPayload = z.input<
   typeof CreateBlogCategoryPayloadSchema
 >

@@ -408,7 +408,7 @@ export default function BlogPostsPage() {
         <Table>
           <TableHeader className="bg-muted/30">
             <TableRow className="hover:bg-transparent">
-              <TableHead className="w-[45%] min-w-[320px]">Tiêu đề</TableHead>
+              <TableHead className="w-[350px] max-w-[350px]">Tiêu đề</TableHead>
               <TableHead>Tác giả</TableHead>
               <TableHead>Ngày đăng</TableHead>
               <TableHead>Danh mục</TableHead>
@@ -448,10 +448,10 @@ export default function BlogPostsPage() {
                     key={post.id}
                     className="transition-colors hover:bg-muted/50"
                   >
-                    <TableCell>
+                    <TableCell className="max-w-[320px]">
                       <div className="flex min-w-0 items-center gap-3">
                         <BlogCover post={post} />
-                        <div className="min-w-0">
+                        <div className="min-w-0 max-w-[240px]">
                           <Link
                             href={`/blog/${post.id}`}
                             className="block truncate font-medium text-foreground hover:text-primary"

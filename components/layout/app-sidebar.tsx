@@ -224,7 +224,7 @@ export function AppSidebar() {
                       isActive={
                         item.href === "/"
                           ? pathname === "/"
-                          : pathname?.startsWith(item.href)
+                          : pathname === item.href || pathname?.startsWith(item.href + "/")
                       }
                       tooltip={item.title}
                       className="h-9 rounded-xl text-[13px] font-medium transition-all data-[active=true]:bg-accent-soft data-[active=true]:text-primary data-[active=true]:font-semibold group-data-[collapsible=icon]:justify-center group-data-[collapsible=icon]:p-0!"

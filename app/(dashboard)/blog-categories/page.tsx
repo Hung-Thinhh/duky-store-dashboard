@@ -1,7 +1,7 @@
 "use client"
 
 import * as React from "react"
-import { useForm, Controller } from "react-hook-form"
+import { useForm, Controller, useWatch } from "react-hook-form"
 import { zodResolver } from "@hookform/resolvers/zod"
 import {
   IconSearch,
@@ -46,6 +46,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { blogService } from "@/lib/api/services/blog.service"
 import { BlogCategory, CreateBlogCategoryPayloadSchema, CreateBlogCategoryPayload } from "@/lib/api/schemas/blog.schema"
 import { ContentStatus } from "@/lib/api/schemas/enums"
+import { slugify } from "@/lib/utils/slugify"
 
 const statusConfig: Record<string, { color: string; label: string }> = {
   [ContentStatus.PUBLISHED]: { color: "bg-emerald-100 text-emerald-700", label: "Hiển thị" },
@@ -89,6 +90,7 @@ export default function BlogCategoriesPage() {
     handleSubmit,
     control,
     reset,
+    setValue,
     formState: { errors },
   } = useForm<CreateBlogCategoryPayload>({
     resolver: zodResolver(CreateBlogCategoryPayloadSchema),
@@ -105,6 +107,15 @@ export default function BlogCategoriesPage() {
       }
     },
   })
+
+  const watchedName = useWatch({ control, name: "name" })
+  const [isSlugManual, setIsSlugManual] = React.useState(false)
+
+  React.useEffect(() => {
+    if (!isSlugManual && watchedName) {
+      setValue("slug", slugify(watchedName))
+    }
+  }, [watchedName, isSlugManual, setValue])
 
   const fetchCategories = React.useCallback(async () => {
     try {
@@ -126,6 +137,7 @@ export default function BlogCategoriesPage() {
   const handleOpenSheet = (category?: BlogCategory) => {
     if (category) {
       setEditingCategory(category)
+      setIsSlugManual(true)
       reset({
         name: category.name,
         slug: category.slug,
@@ -136,6 +148,7 @@ export default function BlogCategoriesPage() {
       })
     } else {
       setEditingCategory(null)
+      setIsSlugManual(false)
       reset({
         name: "",
         slug: "",

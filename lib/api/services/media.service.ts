@@ -44,6 +44,11 @@ export const mediaService = {
     return MediaDetailResponseSchema.parse(response).DT;
   },
 
+  async updateMedia(id: string, data: { altText?: string; title?: string; fileName?: string }) {
+    const response = await apiClient.patch(`/admin/media/${id}`, data);
+    return MediaDetailResponseSchema.parse(response).DT;
+  },
+
   async deleteMedia(id: string) {
     const response = await apiClient.delete(`/admin/media/${id}`);
     return response;

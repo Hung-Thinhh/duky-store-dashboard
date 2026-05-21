@@ -58,8 +58,10 @@ import {
   IconList,
   IconListNumbers,
   IconPhoto,
+  IconPaint,
   IconPlus,
   IconRefresh,
+  IconResize,
   IconSearch,
   IconSeo,
   IconStrikethrough,
@@ -88,6 +90,11 @@ import {
 } from "@tabler/icons-react"
 
 import { MediaPickerDialog } from "@/components/media/media-picker-dialog"
+import { SeoScoringPanel } from "@/components/seo/seo-scoring-panel"
+import { useSeoAnalysis } from "@/hooks/use-seo-analysis"
+import type { SeoInput } from "@/lib/seo/types"
+import { generateTableOfContents, generateHeadingId } from "@/lib/seo/table-of-contents"
+import { suggestInternalLinks } from "@/lib/seo/internal-links"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import { Checkbox } from "@/components/ui/checkbox"
@@ -115,7 +122,6 @@ import {
   CreateBlogPostPayload,
   CreateBlogPostPayloadSchema,
   type BlogCategory,
-  type BlogPostContentImage,
   type BlogReusableBlock,
   type BlogReusableBlockType,
   type BlogPost,
@@ -187,37 +193,82 @@ const BlogImage = Image.extend({
       ...this.parent?.(),
       width: {
         default: "75%",
-        parseHTML: (element) => element.getAttribute("data-width") || element.style.width || "75%",
+        parseHTML: (element) => {
+          const figure = element.closest("figure")
+          return (
+            element.getAttribute("data-width") ||
+            figure?.getAttribute("data-width") ||
+            figure?.style.width ||
+            element.style.width ||
+            "75%"
+          )
+        },
       },
       align: {
         default: "center",
-        parseHTML: (element) => element.getAttribute("data-align") || "center",
+        parseHTML: (element) => {
+          const figure = element.closest("figure")
+          const rawAlign =
+            element.getAttribute("data-align") ||
+            figure?.getAttribute("data-align") ||
+            figure?.style.float ||
+            "center"
+          return rawAlign === "left" || rawAlign === "right" ? rawAlign : "center"
+        },
       },
       caption: {
         default: "",
-        parseHTML: (element) => element.getAttribute("data-caption") || "",
+        parseHTML: (element) =>
+          element.getAttribute("data-caption") ||
+          element.closest("figure")?.querySelector("figcaption")?.textContent?.trim() ||
+          "",
       },
     }
   },
   renderHTML({ HTMLAttributes }) {
     const width = (HTMLAttributes.width as string | undefined) || "75%"
     const align = (HTMLAttributes.align as string | undefined) || "center"
-    const marginStyle =
+    const caption = ((HTMLAttributes.caption as string | undefined) ?? "").trim()
+    const figureStyle =
       align === "left"
-        ? "margin-left:0;margin-right:auto;"
+        ? "float:left;margin:8px 24px 18px 0;"
         : align === "right"
-          ? "margin-left:auto;margin-right:0;"
-          : "margin-left:auto;margin-right:auto;"
+          ? "float:right;margin:8px 0 18px 24px;"
+          : "float:none;margin:28px auto;"
+    const figureAttrs = mergeAttributes({
+      class: "duky-blog-image-figure",
+      "data-width": width,
+      "data-align": align,
+      "data-caption": caption,
+      contenteditable: "false",
+      draggable: "true",
+      style: `${figureStyle}width:${width};max-width:100%;display:block;text-align:center;`,
+    })
+    const imageAttrs = mergeAttributes(this.options.HTMLAttributes, {
+      src: HTMLAttributes.src,
+      alt: HTMLAttributes.alt,
+      title: HTMLAttributes.title,
+      class: "rounded-2xl",
+      "data-width": width,
+      "data-align": align,
+      "data-caption": caption,
+      style: "display:block;width:100%;height:auto;margin:0;border-radius:24px;",
+    })
+    const children: unknown[] = ["figure", figureAttrs, ["img", imageAttrs]]
 
-    return [
-      "img",
-      mergeAttributes(this.options.HTMLAttributes, HTMLAttributes, {
-        "data-width": width,
-        "data-align": align,
-        "data-caption": (HTMLAttributes.caption as string | undefined) ?? "",
-        style: `${marginStyle}width:${width};height:auto;display:block;`,
-      }),
-    ]
+    if (caption) {
+      children.push([
+        "figcaption",
+        {
+          class: "duky-blog-image-caption",
+          style:
+            "margin-top:10px;text-align:center;font-size:14px;line-height:1.6;color:#6b7280;font-style:italic;",
+        },
+        caption,
+      ])
+    }
+
+    return children as any
   },
 })
 
@@ -257,6 +308,107 @@ const highlightSwatches = [
   "#ecfccb",
   "#fde68a",
 ]
+
+const tableCellBackgroundSwatches = [
+  "#ffffff",
+  "#f8fafc",
+  "#f5f5f4",
+  "#ffedd5",
+  "#fef3c7",
+  "#dcfce7",
+  "#dbeafe",
+  "#f3e8ff",
+]
+
+const DEFAULT_BLOG_TABLE_STYLE = "width: 100%; min-width: 100%; table-layout: fixed;"
+
+function readCssDeclaration(style: string | null | undefined, property: string) {
+  const target = property.trim().toLowerCase()
+  if (!style || !target) return ""
+
+  const declaration = style
+    .split(";")
+    .map((rule) => rule.trim())
+    .filter(Boolean)
+    .find((rule) => rule.split(":")[0]?.trim().toLowerCase() === target)
+
+  return declaration?.split(":").slice(1).join(":").trim() ?? ""
+}
+
+function writeCssDeclaration(
+  style: string | null | undefined,
+  property: string,
+  value?: string | null
+) {
+  const target = property.trim().toLowerCase()
+  const nextValue = value?.trim()
+  const rules = (style ?? "")
+    .split(";")
+    .map((rule) => rule.trim())
+    .filter(Boolean)
+    .filter((rule) => rule.split(":")[0]?.trim().toLowerCase() !== target)
+
+  if (nextValue) {
+    rules.push(`${property}: ${nextValue}`)
+  }
+
+  return rules.length ? `${rules.join("; ")};` : null
+}
+
+function writeCssDeclarations(
+  style: string | null | undefined,
+  declarations: Record<string, string | null | undefined>
+) {
+  return Object.entries(declarations).reduce(
+    (nextStyle, [property, value]) => writeCssDeclaration(nextStyle, property, value),
+    style ?? null
+  )
+}
+
+const BlogTable = Table.extend({
+  addAttributes() {
+    return {
+      ...(this.parent?.() ?? {}),
+      tableStyle: {
+        default: DEFAULT_BLOG_TABLE_STYLE,
+        parseHTML: (element) =>
+          element.getAttribute("style") ||
+          element.getAttribute("data-table-style") ||
+          DEFAULT_BLOG_TABLE_STYLE,
+        renderHTML: (attributes) => ({
+          "data-table-style": attributes.tableStyle || DEFAULT_BLOG_TABLE_STYLE,
+          style: attributes.tableStyle || DEFAULT_BLOG_TABLE_STYLE,
+        }),
+      },
+    }
+  },
+})
+
+const BlogTableCell = TableCell.extend({
+  addAttributes() {
+    return {
+      ...(this.parent?.() ?? {}),
+      cellStyle: {
+        default: null,
+        parseHTML: (element) => element.getAttribute("style") || null,
+        renderHTML: (attributes) => (attributes.cellStyle ? { style: attributes.cellStyle } : {}),
+      },
+    }
+  },
+})
+
+const BlogTableHeader = TableHeader.extend({
+  addAttributes() {
+    return {
+      ...(this.parent?.() ?? {}),
+      cellStyle: {
+        default: null,
+        parseHTML: (element) => element.getAttribute("style") || null,
+        renderHTML: (attributes) => (attributes.cellStyle ? { style: attributes.cellStyle } : {}),
+      },
+    }
+  },
+})
 
 type Feedback = {
   message: string
@@ -330,6 +482,20 @@ function minifyHtmlForStorage(html: string) {
     .trim()
 }
 
+function minifyHtmlForEditorDraft(html: string) {
+  const separator = CONTENT_BLOCK_SEPARATOR
+  const parts = html.split(separator)
+  const minifiedParts = parts.map((part) =>
+    part
+      .replace(/\r?\n/g, " ")
+      .replace(/\t+/g, " ")
+      .replace(/>\s+</g, "><")
+      .replace(/\s{2,}/g, " ")
+      .trim()
+  )
+  return minifiedParts.filter(Boolean).join(` ${separator} `)
+}
+
 function splitContentToBlocks(content?: string | null) {
   const raw = (content ?? "").trim()
   if (!raw) return []
@@ -340,18 +506,24 @@ function splitContentToBlocks(content?: string | null) {
     .filter(Boolean)
   if (bySeparator.length > 1) return bySeparator
 
-  const wrappedBlocks = raw.match(
-    /<blockquote[^>]*(?:data-duky-block="true"|data-duky-block)[^>]*>[\s\S]*?<\/blockquote>/gi
-  )
-  if (wrappedBlocks?.length) {
-    return wrappedBlocks.map((block) => block.trim())
+  const blockWrapperPattern =
+    /<blockquote[^>]*(?:data-duky-block="true"|data-duky-block)[^>]*>[\s\S]*?<\/blockquote>|<blockquote[^>]*>[\s\S]*?<p>\s*<strong>\s*block[^<]*<\/strong>\s*<\/p>[\s\S]*?<\/blockquote>/gi
+  const mixedBlocks: string[] = []
+  let lastIndex = 0
+
+  for (const match of raw.matchAll(blockWrapperPattern)) {
+    const index = match.index ?? 0
+    const before = raw.slice(lastIndex, index).trim()
+    if (before) mixedBlocks.push(before)
+    mixedBlocks.push(match[0].trim())
+    lastIndex = index + match[0].length
   }
 
-  const labeledBlocks = raw.match(
-    /<blockquote[^>]*>[\s\S]*?<p>\s*<strong>\s*block[^<]*<\/strong>\s*<\/p>[\s\S]*?<\/blockquote>/gi
-  )
-  if (labeledBlocks?.length) {
-    return labeledBlocks.map((block) => block.trim())
+  const tail = raw.slice(lastIndex).trim()
+  if (tail) mixedBlocks.push(tail)
+
+  if (mixedBlocks.length) {
+    return mixedBlocks
   }
 
   return [raw]
@@ -486,9 +658,28 @@ function removeBlockNode(props: NodeViewProps) {
     .run()
 }
 
+function insertHtmlAfterBlockNode(props: NodeViewProps, html: string) {
+  if (typeof props.getPos !== "function") return
+
+  const pos = props.getPos()
+  if (typeof pos !== "number") return
+
+  props.editor
+    .chain()
+    .focus()
+    .insertContentAt(pos + props.node.nodeSize, html)
+    .run()
+}
+
 type SaveReusableBlockRequest = {
   type: "title" | "content" | "footer"
   html: string
+}
+
+type BlogBlockquoteStorage = {
+  onSaveReusableBlock?: ((data: SaveReusableBlockRequest) => void) | null
+  reusableBlocks?: BlogReusableBlock[]
+  currentTitle?: string
 }
 
 function serializeBlockNodeContent(props: NodeViewProps) {
@@ -718,6 +909,11 @@ function BlogBlockquoteNodeView(props: NodeViewProps) {
   const isFirst = info?.currentIndex === 0
   const isLast = info ? info.currentIndex === info.siblings.length - 1 : false
   const isDukyBlock = Boolean(props.node.attrs.dukyBlock || props.node.attrs.dukyBlockType)
+  const [insertMenuOpen, setInsertMenuOpen] = React.useState(false)
+  const blockquoteStorage = (props.editor.storage as unknown as Record<string, unknown>)
+    .blockquote as BlogBlockquoteStorage | undefined
+  const reusableBlocks = blockquoteStorage?.reusableBlocks ?? []
+  const currentTitle = blockquoteStorage?.currentTitle?.trim() || "Tiêu đề bài viết"
 
   const handleDragStart = (event: React.DragEvent<HTMLButtonElement>) => {
     const currentInfo = getTopLevelNodeInfo(props)
@@ -752,16 +948,30 @@ function BlogBlockquoteNodeView(props: NodeViewProps) {
 
   const handleSaveReusableBlock = () => {
     const html = serializeBlockNodeContent(props)
-    const storage = props.editor.storage as unknown as Record<string, unknown>
-    const blockquoteStorage = storage.blockquote as
-      | { onSaveReusableBlock?: (data: SaveReusableBlockRequest) => void }
-      | undefined
     const saveBlock = blockquoteStorage?.onSaveReusableBlock as
       | ((data: SaveReusableBlockRequest) => void)
       | undefined
 
     if (!html || !saveBlock) return
     saveBlock({ type, html })
+  }
+
+  const insertBlockAfterCurrent = (html: string, nextType: "title" | "content" | "footer") => {
+    insertHtmlAfterBlockNode(props, wrapHtmlAsBlock(html, nextType))
+    setInsertMenuOpen(false)
+  }
+
+  const insertReusableBlockAfterCurrent = (blockId: string) => {
+    const selected = reusableBlocks.find((item) => item.id === blockId)
+    if (!selected) return
+
+    insertHtmlAfterBlockNode(
+      props,
+      isBlockWrapperHtml(selected.html)
+        ? selected.html
+        : wrapHtmlAsBlock(selected.html, toEditorBlockType(selected.type))
+    )
+    setInsertMenuOpen(false)
   }
 
   if (!isDukyBlock) {
@@ -782,10 +992,10 @@ function BlogBlockquoteNodeView(props: NodeViewProps) {
     >
       <div
         contentEditable={false}
-        className="mb-3 flex items-center justify-between gap-3 rounded-xl bg-stone-50 px-2.5 py-1.5"
+        className="mb-3 flex items-center justify-between gap-3 rounded-xl px-2.5 py-1.5 "
       >
-        <span className="rounded-full bg-white px-2.5 py-1 text-[11px] font-semibold uppercase tracking-wide text-stone-500 shadow-sm">
-          {blockTypeLabel(type)}
+        <span className="rounded-full bg-orange-500/80 px-3.5 py-0.5 text-[11px] font-semibold uppercase tracking-wide text-white">
+          {props.node.textContent.includes("Mục lục") ? "Block Mục Lục" : blockTypeLabel(type)}
         </span>
         <div className="flex items-center gap-1">
           <button
@@ -845,6 +1055,104 @@ function BlogBlockquoteNodeView(props: NodeViewProps) {
         </div>
       </div>
       <NodeViewContent className="[&>p:first-child]:hidden" />
+      <div contentEditable={false} className="relative mt-4 flex justify-center">
+        <button
+          type="button"
+          onMouseDown={(event) => event.preventDefault()}
+          onClick={() => setInsertMenuOpen((current) => !current)}
+          className="flex size-9 items-center justify-center rounded-full border border-orange-200 bg-orange-50 text-orange-700 shadow-sm transition hover:border-orange-300 hover:bg-orange-100"
+          title="Thêm block ngay sau block này"
+          aria-label="Thêm block ngay sau block này"
+        >
+          <IconPlus className="size-4" />
+        </button>
+
+        {insertMenuOpen ? (
+          <div className="absolute bottom-11 z-[70] w-72 rounded-2xl border border-stone-200 bg-white p-2 text-sm shadow-xl shadow-stone-900/15">
+            <button
+              type="button"
+              onMouseDown={(event) => event.preventDefault()}
+              onClick={() => insertBlockAfterCurrent(`<h2>${currentTitle}</h2>`, "title")}
+              className="flex w-full items-center justify-between rounded-xl px-3 py-2 text-left font-medium text-stone-700 transition hover:bg-orange-50 hover:text-orange-700"
+            >
+              <span>Block Tiêu Đề</span>
+              <IconPlus className="size-4" />
+            </button>
+            <button
+              type="button"
+              onMouseDown={(event) => event.preventDefault()}
+              onClick={() => insertBlockAfterCurrent("<p>Nội dung block mới...</p>", "content")}
+              className="flex w-full items-center justify-between rounded-xl px-3 py-2 text-left font-medium text-stone-700 transition hover:bg-orange-50 hover:text-orange-700"
+            >
+              <span>Block Nội Dung</span>
+              <IconPlus className="size-4" />
+            </button>
+            <button
+              type="button"
+              onMouseDown={(event) => event.preventDefault()}
+              onClick={() =>
+                insertBlockAfterCurrent(
+                  `<hr /><h3>Thông tin liên hệ</h3><p><strong>Duky Store</strong><br />Hotline: 0900 000 000<br />Email: contact@duky.store<br />Website: https://duky.store</p>`,
+                  "footer"
+                )
+              }
+              className="flex w-full items-center justify-between rounded-xl px-3 py-2 text-left font-medium text-stone-700 transition hover:bg-orange-50 hover:text-orange-700"
+            >
+              <span>Block Footer Liên Hệ</span>
+              <IconPlus className="size-4" />
+            </button>
+            <button
+              type="button"
+              onMouseDown={(event) => event.preventDefault()}
+              onClick={() => {
+                const html = props.editor.getHTML()
+                const toc = generateTableOfContents(html)
+                if (toc.length === 0) {
+                  insertBlockAfterCurrent("<p><em>Chưa có heading (h2/h3) để tạo mục lục.</em></p>", "content")
+                  return
+                }
+                let counter = 0
+                const tocHtml = `<p><strong>📋 Mục lục</strong></p>${toc.map((item) => {
+                  if (item.level === 2) {
+                    counter++
+                    return `<p style="margin:2px 0;padding:4px 8px;background:#f9fafb;border-radius:6px;"><a href="#${item.id}" style="color:#c2410c;text-decoration:none;font-weight:500;">${counter}. ${item.text}</a></p>`
+                  }
+                  return `<p style="margin:2px 0;padding:4px 8px 4px 24px;"><a href="#${item.id}" style="color:#78716c;text-decoration:none;">• ${item.text}</a></p>`
+                }).join("")}`
+                insertBlockAfterCurrent(tocHtml, "content")
+              }}
+              className="flex w-full items-center justify-between rounded-xl px-3 py-2 text-left font-medium text-stone-700 transition hover:bg-orange-50 hover:text-orange-700"
+            >
+              <span>Block Mục Lục</span>
+              <IconPlus className="size-4" />
+            </button>
+
+            {reusableBlocks.length ? (
+              <div className="mt-2 border-t border-stone-200 pt-2">
+                <p className="px-3 py-1 text-[11px] font-semibold uppercase tracking-wide text-stone-400">
+                  Reusable block
+                </p>
+                <div className="max-h-48 overflow-auto pr-1">
+                  {reusableBlocks.map((item) => (
+                    <button
+                      key={item.id}
+                      type="button"
+                      onMouseDown={(event) => event.preventDefault()}
+                      onClick={() => insertReusableBlockAfterCurrent(item.id)}
+                      className="flex w-full items-center justify-between gap-3 rounded-xl px-3 py-2 text-left text-stone-700 transition hover:bg-orange-50 hover:text-orange-700"
+                    >
+                      <span className="min-w-0 truncate">{item.name}</span>
+                      <span className="shrink-0 rounded-full bg-stone-100 px-2 py-0.5 text-[10px] font-semibold uppercase text-stone-500">
+                        {blockTypeLabel(toEditorBlockType(item.type)).replace("Block ", "")}
+                      </span>
+                    </button>
+                  ))}
+                </div>
+              </div>
+            ) : null}
+          </div>
+        ) : null}
+      </div>
     </NodeViewWrapper>
   )
 }
@@ -855,6 +1163,8 @@ const BlogBlockquote = Blockquote.extend({
       onSaveReusableBlock: null as
         | ((data: SaveReusableBlockRequest) => void)
         | null,
+      reusableBlocks: [] as BlogReusableBlock[],
+      currentTitle: "",
     }
   },
 
@@ -1063,6 +1373,18 @@ function decorateBlogHtmlForPublish(html: string) {
   )
   next = decorateHtmlTag(
     next,
+    "figure",
+    "duky-blog-image-figure",
+    "display: block; max-width: 100%; text-align: center;"
+  )
+  next = decorateHtmlTag(
+    next,
+    "figcaption",
+    "duky-blog-image-caption",
+    "margin-top: 10px; text-align: center; font-size: 14px; line-height: 1.6; color: #6b7280; font-style: italic;"
+  )
+  next = decorateHtmlTag(
+    next,
     "blockquote",
     "duky-blog-quote",
     "margin: 24px 0; padding: 16px 20px; border-left: 4px solid #fdba74; border-radius: 16px; background: #fff7ed; color: #292524;"
@@ -1112,7 +1434,16 @@ function toPublishableBlogHtml(content?: string | null) {
 }
 
 function toHtmlDraftFromContent(content?: string | null) {
-  return prettyHtmlForEditor(toPublishableBlogHtml(content))
+  const blocks = splitContentToBlocks(content)
+  if (blocks.length <= 1) {
+    const singleHtml = blocks.length === 1 ? unwrapBlockHtml(blocks[0]) : ""
+    return prettyHtmlForEditor(decorateBlogHtmlForPublish(singleHtml))
+  }
+  const formattedBlocks = blocks.map((block) => {
+    const unwrapped = unwrapBlockHtml(block)
+    return prettyHtmlForEditor(decorateBlogHtmlForPublish(unwrapped))
+  })
+  return formattedBlocks.filter(Boolean).join(`\n${CONTENT_BLOCK_SEPARATOR}\n`)
 }
 
 function toContentFromHtmlDraft(htmlDraft: string) {
@@ -1124,7 +1455,7 @@ function toContentFromHtmlDraft(htmlDraft: string) {
 }
 
 function prettyHtmlForEditor(html: string) {
-  const minified = minifyHtmlForStorage(html)
+  const minified = minifyHtmlForEditorDraft(html)
   if (!minified) return ""
 
   const withBreaks = minified
@@ -1159,41 +1490,49 @@ function cleanSeo(seo: CreateBlogPostPayload["seo"]) {
   return hasValue ? cleaned : undefined
 }
 
-function cleanContentImages(images?: CreateBlogPostPayload["contentImages"]) {
-  if (!images?.length) return []
-
-  return images
-    .map((item, index) => ({
-      mediaId: item.mediaId,
-      sortOrder: item.sortOrder ?? index,
-      altText: emptyToNull(item.altText),
-      title: emptyToNull(item.title),
-      caption: emptyToNull(item.caption),
-      description: emptyToNull(item.description),
-      credit: emptyToNull(item.credit),
-      linkUrl: emptyToNull(item.linkUrl),
-      isFeatured: item.isFeatured ?? index === 0,
-    }))
-    .filter((item) => Boolean(item.mediaId))
+/**
+ * Inject `id` attributes into h2/h3 tags that don't already have one.
+ * This ensures anchor links from the TOC block work correctly.
+ */
+function injectHeadingIds(html: string): string {
+  return html.replace(/<h([23])([^>]*)>([\s\S]*?)<\/h\1>/gi, (match, level, attrs, content) => {
+    // Skip if already has an id attribute
+    if (/\bid\s*=/i.test(attrs)) return match
+    const text = content
+      .replace(/<[^>]*>/g, "")
+      .replace(/&nbsp;/gi, " ")
+      .replace(/&amp;/gi, "&")
+      .replace(/&lt;/gi, "<")
+      .replace(/&gt;/gi, ">")
+      .replace(/&quot;/gi, '"')
+      .replace(/&#39;/gi, "'")
+      .replace(/\s+/g, " ")
+      .trim()
+    if (!text) return match
+    const id = generateHeadingId(text)
+    return `<h${level}${attrs} id="${id}">${content}</h${level}>`
+  })
 }
 
 function normalizePayload(data: CreateBlogPostPayload): CreateBlogPostPayload {
+  const generatedSlug = slugify(data.title)
+  const contentWithHeadingIds = injectHeadingIds(data.content.trim())
+
   return {
     title: data.title.trim(),
-    slug: emptyToNull(data.slug),
+    slug: generatedSlug || emptyToNull(data.slug),
     excerpt: emptyToNull(data.excerpt),
-    content: minifyHtmlForStorage(data.content.trim()),
+    content: minifyHtmlForStorage(contentWithHeadingIds),
     coverMediaId: emptyToNull(data.coverMediaId),
     status: data.status ?? ContentStatus.DRAFT,
     categoryIds: data.categoryIds ?? [],
     tagIds: data.tagIds ?? [],
-    contentImages: cleanContentImages(data.contentImages),
     seo: cleanSeo(data.seo),
   }
 }
 
 function formatDate(value?: string | null) {
-  if (!value) return "Ch� °a cÒ³"
+  if (!value) return "Chưa có"
 
   return new Intl.DateTimeFormat("vi-VN", {
     dateStyle: "medium",
@@ -1243,7 +1582,7 @@ function Panel({
   return (
     <details
       open={defaultOpen}
-      className="group rounded-2xl border border-stone-200 bg-white shadow-sm"
+      className="group rounded-2xl border border-stone-200 bg-white overflow-hidden"
     >
       <summary className="flex cursor-pointer list-none items-center justify-between gap-3 rounded-t-2xl border-b border-stone-100 bg-white px-4 py-3 text-sm font-semibold text-stone-950 group-open:rounded-b-none">
         <span className="flex min-w-0 items-center gap-2">
@@ -1378,7 +1717,7 @@ function ToolbarDropdown({
         <IconChevronDown className="size-3.5" />
       </button>
       {open ? (
-        <div className="absolute left-0 top-full z-50 mt-2 w-72 rounded-2xl border border-stone-200 bg-white p-3 shadow-xl shadow-stone-900/10">
+        <div className="absolute right-0 top-full z-[80] mt-2 max-h-[70vh] w-80 overflow-y-auto rounded-2xl border border-stone-200 bg-white p-3 shadow-xl shadow-stone-900/10">
           {children}
         </div>
       ) : null}
@@ -1559,8 +1898,57 @@ function ColorPickerPanel({
   )
 }
 
+function getActiveTableCellStyle(editor: Editor | null) {
+  if (!editor) return ""
+  const headerStyle = editor.getAttributes("tableHeader").cellStyle
+  const cellStyle = editor.getAttributes("tableCell").cellStyle
+  return typeof headerStyle === "string" ? headerStyle : typeof cellStyle === "string" ? cellStyle : ""
+}
+
+function setActiveTableCellStyle(
+  editor: Editor | null,
+  declarations: Record<string, string | null | undefined>,
+  options?: { colWidth?: number | null }
+) {
+  if (!editor?.isActive("table")) return
+  const currentStyle = getActiveTableCellStyle(editor)
+  const nextStyle = writeCssDeclarations(currentStyle, declarations)
+  let chain = editor.chain().focus().setCellAttribute("cellStyle", nextStyle)
+
+  if (options && "colWidth" in options) {
+    chain = chain.setCellAttribute("colwidth", options.colWidth ? [options.colWidth] : null)
+  }
+
+  chain.run()
+}
+
+function setActiveTableWidth(editor: Editor | null, widthPercent: number) {
+  if (!editor?.isActive("table")) return
+  const width = `${Math.min(100, Math.max(35, widthPercent))}%`
+  const currentStyle =
+    typeof editor.getAttributes("table").tableStyle === "string"
+      ? editor.getAttributes("table").tableStyle
+      : DEFAULT_BLOG_TABLE_STYLE
+  const nextStyle = writeCssDeclarations(currentStyle, {
+    width,
+    "min-width": width,
+    "table-layout": "fixed",
+  })
+
+  editor.chain().focus().updateAttributes("table", { tableStyle: nextStyle }).run()
+}
+
 function TableDropdown({ editor }: { editor: Editor | null }) {
   const isInTable = Boolean(editor?.isActive("table"))
+  const activeCellStyle = getActiveTableCellStyle(editor)
+  const activeCellBackground = readCssDeclaration(activeCellStyle, "background-color")
+  const activeCellTextColor = readCssDeclaration(activeCellStyle, "color")
+  const activeCellWidth = Number.parseInt(readCssDeclaration(activeCellStyle, "width"), 10) || 160
+  const activeTableStyle =
+    typeof editor?.getAttributes("table").tableStyle === "string"
+      ? editor.getAttributes("table").tableStyle
+      : DEFAULT_BLOG_TABLE_STYLE
+  const activeTableWidth = Number.parseInt(readCssDeclaration(activeTableStyle, "width"), 10) || 100
   const tableActionClass =
     "flex h-9 w-full items-center gap-2 rounded-xl px-3 text-left text-sm text-stone-700 transition hover:bg-orange-50 hover:text-orange-700 disabled:pointer-events-none disabled:opacity-40"
 
@@ -1626,6 +2014,119 @@ function TableDropdown({ editor }: { editor: Editor | null }) {
           <IconTrash className="size-4" />
           <span>Xҳa bảng</span>
         </button>
+        <div className="mt-2 border-t border-stone-200 pt-3">
+          <p className="mb-2 text-xs font-semibold uppercase text-stone-500">Kích thước</p>
+          <label className="grid gap-1.5 rounded-xl bg-stone-50 p-2 text-xs text-stone-600">
+            <span className="flex items-center justify-between gap-2">
+              <span className="inline-flex items-center gap-1.5">
+                <IconResize className="size-3.5" />
+                Rộng bảng
+              </span>
+              <span className="font-mono">{activeTableWidth}%</span>
+            </span>
+            <input
+              type="range"
+              min={35}
+              max={100}
+              step={5}
+              disabled={!isInTable}
+              value={activeTableWidth}
+              onChange={(event) => setActiveTableWidth(editor, Number(event.target.value))}
+              className="h-2 w-full accent-orange-600 disabled:opacity-40"
+            />
+          </label>
+          <label className="mt-2 grid gap-1.5 rounded-xl bg-stone-50 p-2 text-xs text-stone-600">
+            <span className="flex items-center justify-between gap-2">
+              <span className="inline-flex items-center gap-1.5">
+                <IconTableColumn className="size-3.5" />
+                Rộng cột/ô
+              </span>
+              <span className="font-mono">{activeCellWidth}px</span>
+            </span>
+            <input
+              type="range"
+              min={80}
+              max={640}
+              step={10}
+              disabled={!isInTable}
+              value={activeCellWidth}
+              onChange={(event) => {
+                const width = Number(event.target.value)
+                setActiveTableCellStyle(
+                  editor,
+                  {
+                    width: `${width}px`,
+                    "min-width": `${width}px`,
+                  },
+                  { colWidth: width }
+                )
+              }}
+              className="h-2 w-full accent-orange-600 disabled:opacity-40"
+            />
+          </label>
+        </div>
+
+        <div className="mt-3 border-t border-stone-200 pt-3">
+          <p className="mb-2 text-xs font-semibold uppercase text-stone-500">Màu ô</p>
+          <div className="grid grid-cols-8 gap-1.5">
+            {tableCellBackgroundSwatches.map((color) => (
+              <button
+                key={color}
+                type="button"
+                disabled={!isInTable}
+                title={`Nền ${color}`}
+                onMouseDown={(event) => event.preventDefault()}
+                onClick={() => setActiveTableCellStyle(editor, { "background-color": color })}
+                className={cn(
+                  "size-7 rounded-full border border-white shadow-sm ring-1 ring-stone-200 transition hover:scale-105 disabled:cursor-not-allowed disabled:opacity-40",
+                  activeCellBackground.toLowerCase() === color.toLowerCase() &&
+                    "ring-2 ring-orange-400 ring-offset-2"
+                )}
+                style={{ backgroundColor: color }}
+              />
+            ))}
+          </div>
+          <div className="mt-2 grid grid-cols-8 gap-1.5">
+            {colorSwatches.slice(0, 8).map((color) => (
+              <button
+                key={color}
+                type="button"
+                disabled={!isInTable}
+                title={`Chữ ${color}`}
+                onMouseDown={(event) => event.preventDefault()}
+                onClick={() => setActiveTableCellStyle(editor, { color })}
+                className={cn(
+                  "flex size-7 items-center justify-center rounded-full border border-white bg-white text-[10px] font-bold shadow-sm ring-1 ring-stone-200 transition hover:scale-105 disabled:cursor-not-allowed disabled:opacity-40",
+                  activeCellTextColor.toLowerCase() === color.toLowerCase() &&
+                    "ring-2 ring-orange-400 ring-offset-2"
+                )}
+                style={{ color }}
+              >
+                A
+              </button>
+            ))}
+          </div>
+          <button
+            type="button"
+            disabled={!isInTable}
+            onClick={() =>
+              setActiveTableCellStyle(
+                editor,
+                {
+                  "background-color": null,
+                  color: null,
+                  width: null,
+                  "min-width": null,
+                },
+                { colWidth: null }
+              )
+            }
+            className={tableActionClass}
+          >
+            <IconPaint className="size-4" />
+            <span>Reset style ô</span>
+          </button>
+        </div>
       </div>
     </ToolbarDropdown>
   )
@@ -1644,6 +2145,78 @@ function setLink(editor: Editor | null) {
   }
 
   editor.chain().focus().extendMarkRange("link").setLink({ href: url }).run()
+}
+
+function isLikelyLegacyImageCaption(node: any) {
+  const text = node?.textContent?.trim()
+  if (!text || !node?.isTextblock) return false
+  if (node.attrs?.textAlign === "center") return true
+
+  let hasText = false
+  let allTextIsItalic = true
+  node.descendants?.((child: any) => {
+    if (!child.isText || !child.text?.trim()) return
+    hasText = true
+    allTextIsItalic = allTextIsItalic && child.marks?.some((mark: any) => mark.type?.name === "italic")
+  })
+
+  return hasText && allTextIsItalic
+}
+
+function getAdjacentCaptionParagraph(editor: Editor | null, captionValue?: string) {
+  if (!editor) return
+  const caption =
+    captionValue?.trim() ||
+    ((editor.getAttributes("image").caption as string | undefined) ?? "").trim()
+  const position = Math.min(editor.state.selection.to, editor.state.doc.content.size)
+  const nodeAfter = editor.state.doc.resolve(position).nodeAfter
+  const text = nodeAfter?.textContent?.trim() ?? ""
+
+  if (
+    nodeAfter?.isTextblock &&
+    text &&
+    ((caption && text === caption) || (!caption && isLikelyLegacyImageCaption(nodeAfter)))
+  ) {
+    return { position, node: nodeAfter, text }
+  }
+}
+
+function getActiveImageCaption(editor: Editor | null) {
+  if (!editor?.isActive("image")) return ""
+  const caption = ((editor.getAttributes("image").caption as string | undefined) ?? "").trim()
+  if (caption) return caption
+  return getAdjacentCaptionParagraph(editor)?.text ?? ""
+}
+
+function removeAdjacentCaptionParagraph(editor: Editor | null, captionValue?: string) {
+  const captionParagraph = getAdjacentCaptionParagraph(editor, captionValue)
+  if (editor && captionParagraph) {
+    editor.view.dispatch(
+      editor.state.tr.delete(
+        captionParagraph.position,
+        captionParagraph.position + captionParagraph.node.nodeSize
+      )
+    )
+    editor.commands.focus()
+  }
+}
+
+function deleteActiveImageWithCaption(editor: Editor | null) {
+  if (!editor?.isActive("image")) return
+  const caption = getActiveImageCaption(editor)
+  const imagePosition = Math.min(editor.state.selection.from, editor.state.doc.content.size)
+
+  editor.chain().focus().deleteSelection().run()
+
+  if (!caption) return
+
+  const position = Math.min(imagePosition, editor.state.doc.content.size)
+  const nodeAfter = editor.state.doc.resolve(position).nodeAfter
+
+  if (nodeAfter?.isTextblock && nodeAfter.textContent.trim() === caption) {
+    editor.view.dispatch(editor.state.tr.delete(position, position + nodeAfter.nodeSize))
+    editor.commands.focus()
+  }
 }
 
 function insertHtmlAtSelection(
@@ -1668,24 +2241,25 @@ function BlogRichTextEditor({
   value,
   onChange,
   blockControls,
-  onInsertContentImage,
 }: {
   value?: string | null
   onChange: (value: string) => void
-  onInsertContentImage?: (image: BlogPostContentImage) => void
   blockControls?: {
     addPostTitleBlock: () => void
     addContentBlock: () => void
     addContactFooterBlock: () => void
+    addTocBlock: () => void
     moveBlock: (fromIndex: number, toIndex: number) => void
     removeBlock: (index: number) => void
     reusableBlocks: BlogReusableBlock[]
+    currentTitle: string
     onSelectReusableBlock: (blockId: string) => void
     onSaveReusableBlock: (data: SaveReusableBlockRequest) => void
   }
 }) {
-  const [editorMode, setEditorMode] = React.useState<"visual" | "html" | "preview">("visual")
+  const [editorMode, setEditorMode] = React.useState<"visual" | "html">("visual")
   const [htmlDraft, setHtmlDraft] = React.useState(toHtmlDraftFromContent(value ?? ""))
+  const [isHtmlDraftDirty, setIsHtmlDraftDirty] = React.useState(false)
   const htmlTextareaRef = React.useRef<HTMLTextAreaElement | null>(null)
   const [isImageLibraryOpen, setIsImageLibraryOpen] = React.useState(false)
   const [imageActionMode, setImageActionMode] = React.useState<"insert" | "replace">("insert")
@@ -1724,21 +2298,22 @@ function BlogRichTextEditor({
           class: "rounded-2xl",
         },
       }),
-      Table.configure({
+      BlogTable.configure({
         resizable: true,
         HTMLAttributes: {
-          class: "w-full border-collapse overflow-hidden rounded-xl",
+          class: "w-full min-w-full table-fixed border-collapse overflow-hidden rounded-xl",
+          style: DEFAULT_BLOG_TABLE_STYLE,
         },
       }),
       TableRow,
-      TableHeader.configure({
+      BlogTableHeader.configure({
         HTMLAttributes: {
-          class: "border border-stone-200 bg-stone-100 px-3 py-2 text-left",
+          class: "min-w-0 border border-stone-200 bg-stone-100 px-3 py-2 text-left align-top",
         },
       }),
-      TableCell.configure({
+      BlogTableCell.configure({
         HTMLAttributes: {
-          class: "border border-stone-200 px-3 py-2",
+          class: "min-w-0 border border-stone-200 px-3 py-2 align-top",
         },
       }),
       TaskList.configure({
@@ -1776,20 +2351,25 @@ function BlogRichTextEditor({
     onUpdate({ editor: currentEditor }) {
       const nextHtml = currentEditor.getHTML()
       setHtmlDraft(toHtmlDraftFromContent(nextHtml))
+      setIsHtmlDraftDirty(false)
       onChange(nextHtml)
     },
   })
 
   React.useEffect(() => {
     if (!editor) return
-    const storage = editor.storage as unknown as Record<
-      string,
-      { onSaveReusableBlock?: ((data: SaveReusableBlockRequest) => void) | null }
-    >
+    const storage = editor.storage as unknown as Record<string, BlogBlockquoteStorage>
     if (!storage.blockquote) return
-    storage.blockquote.onSaveReusableBlock =
-      blockControls?.onSaveReusableBlock ?? null
-  }, [blockControls?.onSaveReusableBlock, editor])
+
+    storage.blockquote.onSaveReusableBlock = blockControls?.onSaveReusableBlock ?? null
+    storage.blockquote.reusableBlocks = blockControls?.reusableBlocks ?? []
+    storage.blockquote.currentTitle = blockControls?.currentTitle ?? ""
+  }, [
+    blockControls?.currentTitle,
+    blockControls?.onSaveReusableBlock,
+    blockControls?.reusableBlocks,
+    editor,
+  ])
 
   const applyImageToEditor = React.useCallback(
     (image: {
@@ -1803,6 +2383,8 @@ function BlogRichTextEditor({
       if (!editor || !image.url.trim()) return
       const shouldReplace = options?.replaceCurrent && editor.isActive("image")
       if (shouldReplace) {
+        const oldCaption = getActiveImageCaption(editor)
+        const nextCaption = (image.caption ?? image.description ?? image.altText ?? "").trim()
         editor
           .chain()
           .focus()
@@ -1810,15 +2392,18 @@ function BlogRichTextEditor({
             src: image.url.trim(),
             alt: image.altText ?? undefined,
             title: image.title ?? undefined,
-            caption: (image.caption ?? image.description ?? image.altText ?? "").trim(),
+            caption: nextCaption,
           })
           .run()
+        removeAdjacentCaptionParagraph(editor, oldCaption)
+        removeAdjacentCaptionParagraph(editor, nextCaption)
       } else {
         const note = (image.caption ?? image.description ?? image.altText ?? "").trim()
         editor
           .chain()
           .focus()
           .insertContent([
+            { type: "paragraph" },
             {
               type: "image",
               attrs: {
@@ -1828,41 +2413,13 @@ function BlogRichTextEditor({
                 caption: note,
               },
             },
-            ...(note
-              ? [
-                  {
-                    type: "paragraph",
-                    attrs: { textAlign: "center" },
-                    content: [
-                      {
-                        type: "text",
-                        text: note,
-                        marks: [{ type: "italic" }],
-                      },
-                    ],
-                  },
-                ]
-              : []),
             { type: "paragraph" },
           ])
           .run()
       }
 
-      if (image.mediaId && onInsertContentImage) {
-        onInsertContentImage({
-          mediaId: image.mediaId,
-          sortOrder: 0,
-          altText: image.altText ?? null,
-          title: image.title ?? null,
-          caption: image.caption ?? null,
-          description: image.description ?? null,
-          credit: null,
-          linkUrl: null,
-          isFeatured: false,
-        })
-      }
     },
-    [editor, onInsertContentImage]
+    [editor]
   )
 
   React.useEffect(() => {
@@ -1874,13 +2431,17 @@ function BlogRichTextEditor({
       editor.commands.setContent(nextHtml, { emitUpdate: false })
     }
     setHtmlDraft(toHtmlDraftFromContent(nextHtml))
+    setIsHtmlDraftDirty(false)
   }, [editor, value])
 
   const applyHtmlToVisualEditor = React.useCallback(() => {
-    if (!editor) return
+    if (!editor || !isHtmlDraftDirty) return
     const nextContent = toContentFromHtmlDraft(htmlDraft)
     editor.commands.setContent(nextContent)
-  }, [editor, htmlDraft])
+    onChange(nextContent)
+    setHtmlDraft(toHtmlDraftFromContent(nextContent))
+    setIsHtmlDraftDirty(false)
+  }, [editor, htmlDraft, isHtmlDraftDirty, onChange])
 
   const formatHtmlDraft = React.useCallback(() => {
     const pretty = htmlDraft
@@ -1889,6 +2450,7 @@ function BlogRichTextEditor({
       .filter(Boolean)
       .join(`\n${CONTENT_BLOCK_SEPARATOR}\n`)
     setHtmlDraft(pretty)
+    setIsHtmlDraftDirty(true)
   }, [htmlDraft])
 
   const insertHtmlSnippet = React.useCallback(
@@ -1897,14 +2459,9 @@ function BlogRichTextEditor({
       if (!textarea) return
       const nextValue = insertHtmlAtSelection(textarea, before, after)
       setHtmlDraft(nextValue)
-      onChange(nextValue)
+      setIsHtmlDraftDirty(true)
     },
-    [onChange]
-  )
-
-  const previewHtml = React.useMemo(
-    () => toPublishableBlogHtml(editor?.getHTML() ?? value ?? ""),
-    [editor, value, htmlDraft]
+    []
   )
 
   const toolbarState =
@@ -2014,7 +2571,13 @@ function BlogRichTextEditor({
   const setImageAlign = React.useCallback(
     (align: "left" | "center" | "right") => {
       if (!editor || !toolbarState.imageActive) return
-      editor.chain().focus().updateAttributes("image", { align }).run()
+      const caption = getActiveImageCaption(editor)
+      editor
+        .chain()
+        .focus()
+        .updateAttributes("image", caption ? { align, caption } : { align })
+        .run()
+      removeAdjacentCaptionParagraph(editor, caption)
     },
     [editor, toolbarState.imageActive]
   )
@@ -2023,7 +2586,13 @@ function BlogRichTextEditor({
     (percent: number) => {
       if (!editor || !toolbarState.imageActive) return
       const safe = Math.min(100, Math.max(20, percent))
-      editor.chain().focus().updateAttributes("image", { width: `${safe}%` }).run()
+      const caption = getActiveImageCaption(editor)
+      editor
+        .chain()
+        .focus()
+        .updateAttributes("image", caption ? { width: `${safe}%`, caption } : { width: `${safe}%` })
+        .run()
+      removeAdjacentCaptionParagraph(editor, caption)
     },
     [editor, toolbarState.imageActive]
   )
@@ -2037,17 +2606,18 @@ function BlogRichTextEditor({
   const isCodeBlockActive = toolbarState.codeBlock
 
   return (
-    <div className="overflow-hidden rounded-b-2xl border-x border-b border-stone-200 bg-white shadow-sm">
+    <div className="overflow-visible rounded-b-2xl border-x border-b border-stone-200 bg-white shadow-sm">
       <div className="flex items-center justify-end border-b border-stone-200 bg-stone-50 px-3 py-2">
         <Tabs
           value={editorMode}
           onValueChange={(nextMode) => {
-            const mode = nextMode as "visual" | "html" | "preview"
+            const mode = nextMode as "visual" | "html"
             if (mode === "visual") {
               applyHtmlToVisualEditor()
             } else if (mode === "html") {
               const sourceHtml = editor?.getHTML() ?? htmlDraft
               setHtmlDraft(toHtmlDraftFromContent(sourceHtml))
+              setIsHtmlDraftDirty(false)
             }
             setEditorMode(mode)
           }}
@@ -2060,9 +2630,6 @@ function BlogRichTextEditor({
             <TabsTrigger value="html" className="h-7 min-w-[88px] rounded-md text-xs">
               HTML
             </TabsTrigger>
-            <TabsTrigger value="preview" className="h-7 min-w-[88px] rounded-md text-xs">
-              Preview
-            </TabsTrigger>
           </TabsList>
         </Tabs>
       </div>
@@ -2070,34 +2637,43 @@ function BlogRichTextEditor({
       {editorMode === "visual" ? (
       <>
       {blockControls ? (
-        <div className="border-b border-stone-200 bg-stone-50/70 px-3 py-3">
+        <div className=" px-3 py-3">
           <div className="flex flex-wrap items-center gap-2">
             <Button
               type="button"
               size="sm"
               variant="outline"
-              className="rounded-full border-stone-300"
+              className="rounded-full border-orange-500 bg-orange-300/30"
               onClick={blockControls.addPostTitleBlock}
             >
-              + Block Tiêu Đề
+              Block Tiêu Đề
             </Button>
             <Button
               type="button"
               size="sm"
               variant="outline"
-              className="rounded-full border-stone-300"
+              className="rounded-full border-orange-500 bg-orange-300/30"
               onClick={blockControls.addContentBlock}
             >
-              + Block Nội Dung
+              Block Nội Dung
             </Button>
             <Button
               type="button"
               size="sm"
               variant="outline"
-              className="rounded-full border-stone-300"
+              className="rounded-full border-orange-500 bg-orange-300/30"
               onClick={blockControls.addContactFooterBlock}
             >
-              + Block Footer Liên Hệ
+              Block Footer Liên Hệ
+            </Button>
+            <Button
+              type="button"
+              size="sm"
+              variant="outline"
+              className="rounded-full border-orange-500 bg-orange-300/30"
+              onClick={blockControls.addTocBlock}
+            >
+              Block Mục Lục
             </Button>
             <select
               defaultValue=""
@@ -2107,7 +2683,7 @@ function BlogRichTextEditor({
                 blockControls.onSelectReusableBlock(blockId)
                 event.currentTarget.value = ""
               }}
-              className="h-9 min-w-[230px] rounded-full border border-stone-300 bg-white px-3 text-sm text-stone-700 outline-none transition focus:border-orange-300 focus:ring-2 focus:ring-orange-100"
+              className="h-9 min-w-[230px] rounded-full border border-orange-500 bg-orange-300/30 bg-white px-3 text-sm text-stone-700 outline-none transition focus:border-orange-300 focus:ring-2 focus:ring-orange-100"
             >
               <option value="">Reusable block (toàn cục)</option>
               {blockControls.reusableBlocks.map((item) => (
@@ -2353,7 +2929,7 @@ function BlogRichTextEditor({
               setImagePickerInitialDraft({
                 altText: imageAttrs?.alt ?? "",
                 title: imageAttrs?.title ?? "",
-                caption: imageAttrs?.caption ?? "",
+                caption: getActiveImageCaption(editor),
               })
               setIsImageLibraryOpen(true)
             }}
@@ -2474,7 +3050,7 @@ function BlogRichTextEditor({
                 setImagePickerInitialDraft({
                   altText: imageAttrs?.alt ?? "",
                   title: imageAttrs?.title ?? "",
-                  caption: imageAttrs?.caption ?? "",
+                  caption: getActiveImageCaption(editor),
                 })
                 setIsImageLibraryOpen(true)
               }}
@@ -2483,7 +3059,7 @@ function BlogRichTextEditor({
             </EditorButton>
             <EditorButton
               label="Xҳa ảnh"
-              onClick={() => editor.chain().focus().deleteSelection().run()}
+              onClick={() => deleteActiveImageWithCaption(editor)}
             >
               <IconTrash className="size-4" />
             </EditorButton>
@@ -2530,10 +3106,10 @@ function BlogRichTextEditor({
             applyImageToEditor({ url })
           }
         }}
-        title="Chọn ảnh chҨn vҠo n���i dung bҠi viết"
+        title="Ảnh từ thư viện"
       />
       </>
-      ) : editorMode === "html" ? (
+      ) : (
         <div className="border-b border-stone-200">
           <div className="flex flex-wrap items-center gap-1 border-b border-stone-200 bg-white px-3 py-2">
             {[
@@ -2572,20 +3148,12 @@ function BlogRichTextEditor({
             value={htmlDraft}
             onChange={(event) => {
               setHtmlDraft(event.target.value)
-              onChange(event.target.value)
+              setIsHtmlDraftDirty(true)
             }}
             className="min-h-[680px] rounded-none border-0 px-4 py-3 font-mono text-[13px] leading-6 focus-visible:ring-0"
           />
         </div>
-      ) : (
-        <div className="min-h-[680px] border-b border-stone-200 bg-[#f7f7f5] px-4 py-8">
-          <article
-            className="mx-auto max-w-3xl rounded-[28px] bg-white px-7 py-8 shadow-sm ring-1 ring-stone-200 md:px-10 md:py-10"
-            dangerouslySetInnerHTML={{
-              __html: previewHtml || "<p>Chưa có nội dung để preview.</p>",
-            }}
-          />
-        </div>
+
       )}
     </div>
   )
@@ -2606,7 +3174,6 @@ export default function BlogPostDetailPage() {
   const [isMediaPickerOpen, setIsMediaPickerOpen] = React.useState(false)
   const [coverUrl, setCoverUrl] = React.useState("")
   const [feedback, setFeedback] = React.useState<Feedback | null>(null)
-  const [isSlugEdited, setIsSlugEdited] = React.useState(!isNew)
 
   const {
     register,
@@ -2614,7 +3181,8 @@ export default function BlogPostDetailPage() {
     control,
     reset,
     setValue,
-    formState: { errors },
+    getValues,
+    formState: { errors, isDirty },
   } = useForm<CreateBlogPostPayload>({
     resolver: zodResolver(CreateBlogPostPayloadSchema),
     defaultValues: {
@@ -2632,7 +3200,6 @@ export default function BlogPostDetailPage() {
       status: ContentStatus.DRAFT,
       categoryIds: [],
       tagIds: [],
-      contentImages: [],
       seo: {
         metaTitle: "",
         metaDescription: "",
@@ -2652,6 +3219,10 @@ export default function BlogPostDetailPage() {
   const selectedTagIds = preview.tagIds ?? []
   const contentBlocks = React.useMemo(
     () => splitContentToBlocks(preview.content),
+    [preview.content]
+  )
+  const publishPreviewHtml = React.useMemo(
+    () => toPublishableBlogHtml(preview.content),
     [preview.content]
   )
   const [reusableBlocks, setReusableBlocks] = React.useState<BlogReusableBlock[]>([])
@@ -2737,6 +3308,23 @@ export default function BlogPostDetailPage() {
     )
   }, [insertContentBlock])
 
+  const addTocBlock = React.useCallback(() => {
+    const toc = generateTableOfContents(preview.content || "")
+    if (toc.length === 0) {
+      insertContentBlock("<p><em>Chưa có heading (h2/h3) trong nội dung để tạo mục lục.</em></p>", "content")
+      return
+    }
+    let h2Counter = 0
+    const tocHtml = `<p><strong>📋 Mục lục</strong></p>${toc.map((item) => {
+      if (item.level === 2) {
+        h2Counter++
+        return `<p style="margin:2px 0;padding:4px 8px;background:#f9fafb;border-radius:6px;"><a href="#${item.id}" style="color:#c2410c;text-decoration:none;font-weight:500;">${h2Counter}. ${item.text}</a></p>`
+      }
+      return `<p style="margin:2px 0;padding:4px 8px 4px 24px;"><a href="#${item.id}" style="color:#78716c;text-decoration:none;">• ${item.text}</a></p>`
+    }).join("")}`
+    insertContentBlock(tocHtml, "content")
+  }, [insertContentBlock, preview.content])
+
   const openSaveReusableBlockDialog = React.useCallback((data: SaveReusableBlockRequest) => {
     setSaveBlockDialog({
       open: true,
@@ -2793,17 +3381,83 @@ export default function BlogPostDetailPage() {
   }, [closeSaveReusableBlockDialog, fetchReusableBlocks, saveBlockDialog])
 
   const selectedStatus = preview.status ?? ContentStatus.DRAFT
-  const generatedSlug = preview.slug || slugify(preview.title || "bai-viet")
+  const generatedSlug = slugify(preview.title || "bai-viet")
+
+  const [focusKeyword, setFocusKeyword] = React.useState(
+    post?.seo?.focusKeyword ?? ""
+  )
+  const [isSeoDrawerOpen, setIsSeoDrawerOpen] = React.useState(false)
+  const [lastAutoSaved, setLastAutoSaved] = React.useState<Date | null>(null)
+  const [copiedLink, setCopiedLink] = React.useState<string | null>(null)
+
+  const seoInput: SeoInput | null = React.useMemo(() => {
+    // Use first keyword from comma-separated list as primary focus keyword
+    const primaryKeyword = focusKeyword.split(",").map((k) => k.trim()).filter(Boolean)[0] || ""
+    if (!primaryKeyword) return null
+    return {
+      focusKeyword: primaryKeyword,
+      seoTitle: preview.seo?.metaTitle || preview.title || "",
+      metaDescription: preview.seo?.metaDescription || preview.excerpt || "",
+      slug: generatedSlug,
+      htmlContent: preview.content || "",
+      siteUrl: typeof window !== "undefined" ? window.location.origin : "",
+    }
+  }, [focusKeyword, preview.seo?.metaTitle, preview.title, preview.seo?.metaDescription, preview.excerpt, generatedSlug, preview.content])
+
+  const seoResult = useSeoAnalysis(seoInput)
+
+  // Table of Contents auto-generation
+  const tocItems = React.useMemo(
+    () => generateTableOfContents(preview.content || ''),
+    [preview.content]
+  )
+
+  // Internal link suggestions
+  const [allOtherPosts, setAllOtherPosts] = React.useState<{ title: string; slug: string }[]>([])
+  const internalLinkSuggestions = React.useMemo(
+    () => suggestInternalLinks(preview.content || '', allOtherPosts),
+    [preview.content, allOtherPosts]
+  )
+
+  // Product suggestions for CTA links
+  const [allProducts, setAllProducts] = React.useState<{ title: string; slug: string }[]>([])
+  const productSuggestions = React.useMemo(
+    () => suggestInternalLinks(preview.content || '', allProducts),
+    [preview.content, allProducts]
+  )
+
+  // Auto-save draft every 30 seconds
+  React.useEffect(() => {
+    if (isNew) return // Don't auto-save new posts that haven't been created yet
+
+    const interval = window.setInterval(async () => {
+      const currentValues = getValues()
+      if (!isDirty) return
+      if (currentValues.status !== ContentStatus.DRAFT) return
+
+      try {
+        const payload = normalizePayload(currentValues)
+        if (postId) {
+          await blogService.updatePost(postId, payload)
+          setLastAutoSaved(new Date())
+        }
+      } catch (error) {
+        console.error("Auto-save failed", error)
+      }
+    }, 30000)
+
+    return () => window.clearInterval(interval)
+  }, [isNew, postId, isDirty, getValues])
 
   React.useEffect(() => {
-    if (isSlugEdited) return
-
     const nextSlug = slugify(preview.title ?? "")
+    if ((preview.slug ?? "") === nextSlug) return
+
     setValue("slug", nextSlug, {
-      shouldDirty: Boolean(nextSlug),
+      shouldDirty: false,
       shouldValidate: Boolean(nextSlug),
     })
-  }, [isSlugEdited, preview.title, setValue])
+  }, [preview.slug, preview.title, setValue])
 
   const fetchOptions = React.useCallback(async () => {
     try {
@@ -2816,6 +3470,31 @@ export default function BlogPostDetailPage() {
       setCategories(categoryResponse.data)
       setTags(tagResponse.data.filter((tag) => tag.type !== TagType.PRODUCT))
       setReusableBlocks(reusableBlockResponse.data)
+      // Fetch other posts for internal link suggestions
+      try {
+        const postsResponse = await blogService.getPosts({ limit: 50 })
+        setAllOtherPosts(
+          postsResponse.data
+            .filter((p) => p.id !== postId)
+            .map((p) => ({ title: p.title, slug: p.slug }))
+        )
+      } catch {
+        // Non-critical: silently ignore if posts fetch fails
+      }
+
+      // Fetch products for product link suggestions
+      try {
+        const { apiClient } = await import("@/lib/api/axios-client")
+        const productsResponse = await apiClient.get("/admin/products", { params: { limit: 50 } }) as any
+        const products = productsResponse?.DT?.data || productsResponse?.data || []
+        setAllProducts(
+          products
+            .filter((p: any) => p.title && p.slug)
+            .map((p: any) => ({ title: p.title, slug: p.slug }))
+        )
+      } catch {
+        // Non-critical: silently ignore if products fetch fails
+      }
     } catch (error) {
       console.error("Failed to fetch blog options", error)
       setFeedback({
@@ -2833,7 +3512,6 @@ export default function BlogPostDetailPage() {
       const data = await blogService.getPost(postId)
 
       setPost(data)
-      setIsSlugEdited(true)
       setCoverUrl(data.coverMedia?.secureUrl || data.coverMedia?.url || "")
       reset({
         title: data.title,
@@ -2844,17 +3522,6 @@ export default function BlogPostDetailPage() {
         status: data.status ?? ContentStatus.DRAFT,
         categoryIds: data.categories.map((category) => category.id),
         tagIds: data.tags.map((tag) => tag.id),
-        contentImages: (data.contentImages ?? []).map((item, index) => ({
-          mediaId: item.mediaId,
-          sortOrder: item.sortOrder ?? index,
-          altText: item.altText ?? "",
-          title: item.title ?? "",
-          caption: item.caption ?? "",
-          description: item.description ?? "",
-          credit: item.credit ?? "",
-          linkUrl: item.linkUrl ?? "",
-          isFeatured: item.isFeatured ?? index === 0,
-        })),
         seo: {
           metaTitle: data.seo?.metaTitle ?? "",
           metaDescription: data.seo?.metaDescription ?? "",
@@ -2899,13 +3566,6 @@ export default function BlogPostDetailPage() {
     return () => window.clearTimeout(timeout)
   }, [feedback])
 
-  const handleGenerateSlug = () => {
-    const title = preview.title?.trim()
-    if (!title) return
-    setIsSlugEdited(false)
-    setValue("slug", slugify(title), { shouldDirty: true, shouldValidate: true })
-  }
-
   const toggleTag = (tagId: string, checked: boolean) => {
     setValue(
       "tagIds",
@@ -2945,13 +3605,13 @@ export default function BlogPostDetailPage() {
     return (
       <div className="flex h-full items-center justify-center gap-3 p-10 text-muted-foreground">
         <IconLoader2 className="animate-spin" />
-        <span>��ang tải bҠi viết...</span>
+        <span>Đang tải bài viết...</span>
       </div>
     )
   }
 
   return (
-    <form onSubmit={handleSubmit(onSubmit)} className="min-h-full bg-[#f7f7f5]">
+    <form onSubmit={handleSubmit(onSubmit)} className="min-h-full ">
       {feedback ? (
         <div className="fixed right-4 top-4 z-[80] w-[min(420px,calc(100vw-32px))]">
           <div
@@ -3027,15 +3687,27 @@ export default function BlogPostDetailPage() {
                 Tải lại
               </Button>
             ) : null}
-            <Button
+            <button
               type="button"
-              variant="outline"
-              size="sm"
-              className="rounded-full border-stone-300 bg-white text-stone-700 hover:bg-stone-50"
-              asChild
+              onClick={() => setIsSeoDrawerOpen(true)}
+              className="cursor-pointer focus:outline-none focus-visible:ring-2 focus-visible:ring-orange-400 rounded-full"
+              aria-label="Mở bảng SEO"
             >
-              <Link href="/blog">SEO</Link>
-            </Button>
+            {seoResult ? (
+              <span className={cn(
+                "inline-flex items-center gap-1 rounded-full px-2.5 py-1 text-xs font-semibold",
+                seoResult.color === "green" && "bg-green-50 text-green-700",
+                seoResult.color === "orange" && "bg-orange-50 text-orange-700",
+                seoResult.color === "red" && "bg-red-50 text-red-700",
+              )}>
+                SEO {seoResult.score}/100
+              </span>
+            ) : (
+              <span className="inline-flex items-center rounded-full bg-stone-100 px-2.5 py-1 text-xs font-medium text-stone-500">
+                SEO —
+              </span>
+            )}
+            </button>
             <Button
               type="button"
               variant="outline"
@@ -3061,6 +3733,11 @@ export default function BlogPostDetailPage() {
               )}
               {isSaving ? "Đang lưu" : "Cập nhật"}
             </Button>
+            {lastAutoSaved && (
+              <span className="text-xs text-stone-400">
+                Đã tự động lưu lúc {lastAutoSaved.toLocaleTimeString("vi-VN", { hour: "2-digit", minute: "2-digit" })}
+              </span>
+            )}
           </div>
         </div>
       </div>
@@ -3068,9 +3745,9 @@ export default function BlogPostDetailPage() {
       <div className="grid min-h-[calc(100vh-96px)] grid-cols-1 gap-5 py-5 lg:grid-cols-[minmax(0,1fr)_340px]">
         <main className="min-w-0">
           <section className="mx-auto max-w-[1060px]">
-            <div className="mb-3 rounded-2xl border border-orange-200 bg-orange-50 px-4 py-3 text-xs text-orange-800 shadow-sm">
+            {/* <div className="mb-3 rounded-2xl border border-orange-200 bg-orange-50 px-4 py-3 text-xs text-orange-800 shadow-sm">
               Bản đang soạn sẽ lưu vào hệ thống Blog Duky. Khi chuyển trạng thái công khai, bài viết sẽ có thể hiển thị trên storefront.
-            </div>
+            </div> */}
 
             <div className="rounded-t-2xl border border-stone-200 bg-white p-4 shadow-sm">
               <div className="flex flex-col gap-4">
@@ -3078,7 +3755,7 @@ export default function BlogPostDetailPage() {
                   <Input
                     {...register("title")}
                     placeholder="Nhập tiêu đề bài viết"
-                    className="h-12 rounded-xl border-stone-300 bg-white px-3 text-xl font-semibold tracking-tight shadow-none focus-visible:border-orange-400 focus-visible:ring-orange-200 md:text-[20px]"
+                    className="h-12 rounded-xl border-stone-300 bg-white px-3 text-xl font-semibold tracking-tight shadow-none focus-visible:border-orange-400 focus-visible:ring-orange-200 md:text-[18px]"
                     aria-invalid={Boolean(errors.title)}
                   />
                   <FieldError message={errors.title?.message} />
@@ -3092,32 +3769,14 @@ export default function BlogPostDetailPage() {
                   />
                 </div>
 
-                <div className="grid gap-3 md:grid-cols-[minmax(0,1fr)_auto]">
-                  <div className="flex min-w-0 items-center gap-2 rounded-xl border border-stone-300 bg-white px-3 py-2 text-sm">
-                    <span className="shrink-0 text-stone-500">Slug</span>
-                    <input
-                      {...register("slug")}
-                      placeholder="tu-dong-tao-neu-bo-trong"
-                      className="min-w-0 flex-1 bg-transparent font-mono text-stone-700 outline-none"
-                      aria-invalid={Boolean(errors.slug)}
-                      onChange={(event) => {
-                        setIsSlugEdited(true)
-                        setValue("slug", event.target.value, {
-                          shouldDirty: true,
-                          shouldValidate: true,
-                        })
-                      }}
-                    />
-                  </div>
-                  <Button
-                    type="button"
-                    variant="outline"
-                    className="rounded-xl border-stone-300 hover:border-orange-300 hover:bg-orange-50 hover:text-orange-700"
-                    onClick={handleGenerateSlug}
-                  >
-                    Tạo slug
-                  </Button>
+                <input type="hidden" {...register("slug")} />
+                <div className="flex min-w-0 items-center gap-2 rounded-xl px-3  text-sm">
+                  <span className="shrink-0 text-stone-500">Slug:/</span>
+                  <span className="min-w-0 flex-1 truncate font-mono text-orange-500">
+                    {generatedSlug || "bai-viet"}
+                  </span>
                 </div>
+                <FieldError message={errors.slug?.message} />
               </div>
             </div>
 
@@ -3128,40 +3787,15 @@ export default function BlogPostDetailPage() {
                 <BlogRichTextEditor
                   value={field.value}
                   onChange={field.onChange}
-                  onInsertContentImage={(image) => {
-                    const current = (preview.contentImages ?? []).filter(
-                      (item): item is NonNullable<typeof item> & { mediaId: string } =>
-                        Boolean(item?.mediaId)
-                    )
-                    const existingIndex = current.findIndex((item) => item.mediaId === image.mediaId)
-                    const next =
-                      existingIndex >= 0
-                        ? current.map((item, index) =>
-                            index === existingIndex
-                              ? {
-                                  ...item,
-                                  ...image,
-                                  sortOrder: item.sortOrder ?? index,
-                                }
-                              : item
-                          )
-                        : [
-                            ...current,
-                            {
-                              ...image,
-                              sortOrder: current.length,
-                              isFeatured: current.length === 0,
-                            },
-                          ]
-                    setValue("contentImages", next, { shouldDirty: true })
-                  }}
                   blockControls={{
                     addPostTitleBlock,
                     addContentBlock: () => insertContentBlock("<p>Nội dung block mới...</p>"),
                     addContactFooterBlock,
+                    addTocBlock,
                     moveBlock,
                     removeBlock,
                     reusableBlocks,
+                    currentTitle: preview.title ?? "",
                     onSelectReusableBlock: (blockId) => {
                       const selected = reusableBlocks.find((item) => item.id === blockId)
                       if (!selected) return
@@ -3190,18 +3824,18 @@ export default function BlogPostDetailPage() {
           </section>
 
           <section className="mx-auto mt-5 flex max-w-[1060px] flex-col gap-3">
-            <MetaBox title="Tҳm tắt nhanh">
+            {/* <MetaBox title="Tóm tắt nhanh">
               <div className="grid gap-3 text-sm md:grid-cols-3">
                 <div className="rounded-2xl border border-stone-200 bg-stone-50 p-3">
                   <p className="text-xs uppercase text-stone-500">Tiêu đề</p>
                   <p className="mt-1 font-semibold text-stone-900">
-                    {preview.title?.length ?? 0} kҽ tự
+                    {preview.title?.length ?? 0} kí tự
                   </p>
                 </div>
                 <div className="rounded-2xl border border-stone-200 bg-stone-50 p-3">
-                  <p className="text-xs uppercase text-stone-500">MҴ tả</p>
+                  <p className="text-xs uppercase text-stone-500">Mô tả</p>
                   <p className="mt-1 font-semibold text-stone-900">
-                    {preview.excerpt?.length ?? 0} kҽ tự
+                    {preview.excerpt?.length ?? 0} kí tự
                   </p>
                 </div>
                 <div className="rounded-2xl border border-stone-200 bg-stone-50 p-3">
@@ -3211,30 +3845,116 @@ export default function BlogPostDetailPage() {
                   </p>
                 </div>
               </div>
-            </MetaBox>
+            </MetaBox> */}
 
             <MetaBox title="Rank Math SEO">
               <div className="space-y-4">
-                <div className="rounded-2xl border border-orange-200 border-l-4 border-l-orange-400 bg-orange-50 p-3 text-sm text-orange-800">
-                  <p className="font-semibold">Snippet preview</p>
-                  <p className="mt-1 text-orange-700">
+                <SeoScoringPanel
+                  result={seoResult}
+                  focusKeyword={focusKeyword}
+                  onFocusKeywordChange={setFocusKeyword}
+                />
+
+                <div className="rounded-2xl border border-stone-200 bg-white p-4 text-sm">
+                  <p className="mb-2 text-xs font-medium uppercase tracking-wide text-stone-400">Xem trước kết quả tìm kiếm</p>
+                  <p className="truncate text-xs text-green-700">
+                    https://dukystore.com/blog/{generatedSlug}
+                  </p>
+                  <p className="mt-0.5 truncate text-lg font-medium text-blue-700 hover:underline">
                     {preview.seo?.metaTitle || preview.title || "Tiêu đề SEO sẽ hiển thị ở đây"}
                   </p>
-                  <p className="mt-1 font-mono text-xs text-orange-700">
-                    /blog/{generatedSlug}
+                  <p className="mt-1 line-clamp-2 text-sm text-stone-600">
+                    {preview.seo?.metaDescription || preview.excerpt || "Mô tả SEO sẽ hiển thị ở đây. Google thường hiển thị 150-160 ký tự."}
                   </p>
+                </div>
+
+                {/* Facebook Share Preview */}
+                <div className="rounded-2xl border border-stone-200 bg-white text-sm overflow-hidden">
+                  <p className="px-4 pt-3 pb-1 text-xs font-medium uppercase tracking-wide text-stone-400">Xem trước khi share Facebook</p>
+                  <div className="mx-3 mb-3 overflow-hidden rounded-lg border border-stone-200">
+                    {coverUrl ? (
+                      <div className="h-40 w-full bg-stone-100">
+                        <img src={coverUrl} alt="" className="h-full w-full object-cover" />
+                      </div>
+                    ) : (
+                      <div className="flex h-40 w-full items-center justify-center bg-stone-100 text-xs text-stone-400">
+                        Chưa có ảnh đại diện
+                      </div>
+                    )}
+                    <div className="border-t border-stone-200 bg-stone-50 px-3 py-2">
+                      <p className="text-[11px] uppercase text-stone-400">dukystore.com</p>
+                      <p className="mt-0.5 truncate text-sm font-semibold text-stone-900">
+                        {preview.seo?.ogTitle || preview.seo?.metaTitle || preview.title || "Tiêu đề bài viết"}
+                      </p>
+                      <p className="mt-0.5 line-clamp-2 text-xs text-stone-500">
+                        {preview.seo?.ogDescription || preview.seo?.metaDescription || preview.excerpt || "Mô tả bài viết sẽ hiển thị ở đây"}
+                      </p>
+                    </div>
+                  </div>
+                </div>
+
+                {/* SEO Length Indicators */}
+                <div className="space-y-3 rounded-xl border border-stone-200 bg-stone-50 p-3">
+                  {(() => {
+                    const titleLen = (preview.seo?.metaTitle || preview.title || "").length
+                    const slugLen = generatedSlug.length
+                    const descLen = (preview.seo?.metaDescription || preview.excerpt || "").length
+                    const titleMax = 60
+                    const slugMax = 75
+                    const descMax = 160
+                    const getColor = (len: number, max: number) => len <= max ? "bg-green-500" : "bg-red-500"
+                    const getTextColor = (len: number, max: number) => len <= max ? "text-green-700" : "text-red-600"
+                    return (
+                      <>
+                        <div className="space-y-1">
+                          <div className="flex items-center justify-between text-xs">
+                            <span className="font-medium text-stone-700">Tiêu đề</span>
+                            <span className={getTextColor(titleLen, titleMax)}>{titleLen} / {titleMax}</span>
+                          </div>
+                          <div className="h-1.5 w-full overflow-hidden rounded-full bg-stone-200">
+                            <div className={`h-full rounded-full transition-all ${getColor(titleLen, titleMax)}`} style={{ width: `${Math.min((titleLen / titleMax) * 100, 100)}%` }} />
+                          </div>
+                          {titleLen > titleMax && <p className="text-xs text-red-600">⚠ Tiêu đề quá dài, Google sẽ cắt bớt. Nên ≤ 60 ký tự.</p>}
+                        </div>
+                        <div className="space-y-1">
+                          <div className="flex items-center justify-between text-xs">
+                            <span className="font-medium text-stone-700">URL slug</span>
+                            <span className={getTextColor(slugLen, slugMax)}>{slugLen} / {slugMax}</span>
+                          </div>
+                          <div className="h-1.5 w-full overflow-hidden rounded-full bg-stone-200">
+                            <div className={`h-full rounded-full transition-all ${getColor(slugLen, slugMax)}`} style={{ width: `${Math.min((slugLen / slugMax) * 100, 100)}%` }} />
+                          </div>
+                          {slugLen > slugMax && <p className="text-xs text-red-600">⚠ URL quá dài. Nên ≤ 75 ký tự.</p>}
+                        </div>
+                        <div className="space-y-1">
+                          <div className="flex items-center justify-between text-xs">
+                            <span className="font-medium text-stone-700">Mô tả</span>
+                            <span className={getTextColor(descLen, descMax)}>{descLen} / {descMax}</span>
+                          </div>
+                          <div className="h-1.5 w-full overflow-hidden rounded-full bg-stone-200">
+                            <div className={`h-full rounded-full transition-all ${getColor(descLen, descMax)}`} style={{ width: `${Math.min((descLen / descMax) * 100, 100)}%` }} />
+                          </div>
+                          {descLen > descMax && <p className="text-xs text-red-600">⚠ Mô tả quá dài, Google sẽ cắt bớt. Nên ≤ 160 ký tự.</p>}
+                          {descLen > 0 && descLen < 120 && <p className="text-xs text-orange-600">⚠ Mô tả hơi ngắn. Nên viết 120-160 ký tự để tối ưu CTR.</p>}
+                        </div>
+                      </>
+                    )
+                  })()}
                 </div>
                 <div className="grid gap-3 md:grid-cols-2">
                   <div className="space-y-2">
-                    <Label>Meta title</Label>
+                    <div className="flex items-center justify-between">
+                      <Label>Tiêu đề SEO</Label>
+                      <span className="text-xs text-stone-400">{(preview.seo?.metaTitle || preview.title || "").length} / 60</span>
+                    </div>
                     <Input
                       {...register("seo.metaTitle")}
-                      placeholder="Mặc ����9nh lấy tiҪu ���ề bҠi viết"
+                      placeholder={preview.title || "Tự động lấy tiêu đề bài viết"}
                       className="rounded-xl border-stone-300 focus-visible:ring-orange-200"
                     />
                   </div>
                   <div className="space-y-2">
-                    <Label>Canonical URL</Label>
+                    <Label>URL chuẩn (Canonical)</Label>
                     <Input
                       {...register("seo.canonicalUrl")}
                       placeholder="https://..."
@@ -3243,40 +3963,24 @@ export default function BlogPostDetailPage() {
                   </div>
                 </div>
                 <div className="space-y-2">
-                  <Label>Meta description</Label>
+                  <div className="flex items-center justify-between">
+                    <Label>Mô tả SEO</Label>
+                    <span className="text-xs text-stone-400">{(preview.seo?.metaDescription || preview.excerpt || "").length} / 160</span>
+                  </div>
                   <Textarea
                     {...register("seo.metaDescription")}
-                    placeholder="Mặc ����9nh lấy mҴ tả ngắn"
+                    placeholder={preview.excerpt || "Tự động lấy mô tả ngắn của bài viết"}
                     className="min-h-20 rounded-xl border-stone-300 focus-visible:ring-orange-200"
                   />
                 </div>
               </div>
             </MetaBox>
 
-            <MetaBox title="Thiết lập hi��n th�9 bҠi viết">
-              <div className="grid gap-3 text-sm md:grid-cols-2">
-                <label className="flex items-center gap-3 rounded-xl border border-stone-200 bg-white px-3 py-2">
-                  <input type="radio" defaultChecked className="accent-orange-600" />
-                  Sidebar phải
-                </label>
-                <label className="flex items-center gap-3 rounded-xl border border-stone-200 bg-white px-3 py-2 text-stone-500">
-                  <input type="radio" disabled />
-                  Full width
-                </label>
-                <label className="flex items-center gap-3 rounded-xl border border-stone-200 bg-white px-3 py-2">
-                  <input type="checkbox" defaultChecked className="accent-orange-600" />
-                  Hiển thị ảnh đại diện
-                </label>
-                <label className="flex items-center gap-3 rounded-xl border border-stone-200 bg-white px-3 py-2">
-                  <input type="checkbox" defaultChecked className="accent-orange-600" />
-                  Hiển thị ngày đăng
-                </label>
-              </div>
-            </MetaBox>
+          
           </section>
         </main>
 
-        <aside className="flex min-w-0 flex-col gap-3 rounded-3xl border border-stone-200 bg-white/70 p-3 shadow-sm backdrop-blur lg:self-start">
+        <aside className="flex min-w-0 flex-col gap-3">
           <Panel title="Ảnh đại diện" icon={<IconPhoto className="size-4" />}>
             <input type="hidden" {...register("coverMediaId")} />
             {coverUrl ? (
@@ -3294,7 +3998,7 @@ export default function BlogPostDetailPage() {
                 className="flex aspect-[4/3] w-full flex-col items-center justify-center gap-2 rounded-2xl border border-dashed border-stone-300 bg-stone-50 text-sm text-stone-500 transition hover:border-orange-300 hover:bg-orange-50 hover:text-orange-700"
               >
                 <IconPlus className="size-5" />
-                Chọn ảnh bҠi viết
+                Chọn ảnh bài viết
               </button>
             )}
             <div className="mt-3 grid grid-cols-[1fr_auto] gap-2">
@@ -3326,7 +4030,7 @@ export default function BlogPostDetailPage() {
           <Panel title="Xuất bản" icon={<IconFileText className="size-4" />}>
             <div className="space-y-4">
               <div className="space-y-2">
-                <Label>ChuyҪn mục</Label>
+                <Label>Chuyên mục</Label>
                 <Controller
                   name="categoryIds"
                   control={control}
@@ -3338,11 +4042,11 @@ export default function BlogPostDetailPage() {
                       }
                     >
                   <SelectTrigger className="w-full rounded-xl border-stone-300 focus:ring-orange-200">
-                        <SelectValue placeholder="Chọn chuyҪn mục" />
+                        <SelectValue placeholder="Chọn chuyên mục" />
                       </SelectTrigger>
                       <SelectContent>
                         <SelectGroup>
-                          <SelectItem value={NO_CATEGORY}>Ch� °a phÒ¢n loại</SelectItem>
+                          <SelectItem value={NO_CATEGORY}>Chọn phân loại</SelectItem>
                           {categories.map((category) => (
                             <SelectItem key={category.id} value={category.id}>
                               {category.name}
@@ -3356,30 +4060,30 @@ export default function BlogPostDetailPage() {
               </div>
 
               <div className="space-y-2">
-                <Label>Trạng thҡi</Label>
+                <Label>Trạng thái</Label>
                 <Controller
                   name="status"
                   control={control}
                   render={({ field }) => (
                     <Select value={field.value} onValueChange={field.onChange}>
                       <SelectTrigger className="w-full rounded-xl border-stone-300 focus:ring-orange-200">
-                        <SelectValue placeholder="Chọn trạng thҡi" />
+                        <SelectValue placeholder="Chọn trạng thái" />
                       </SelectTrigger>
                       <SelectContent>
                         <SelectGroup>
-                          <SelectItem value={ContentStatus.DRAFT}>Tin nhÒ¡p</SelectItem>
-                          <SelectItem value={ContentStatus.PUBLISHED}>CÒ´ng khai</SelectItem>
+                          <SelectItem value={ContentStatus.DRAFT}>Tin nháp</SelectItem>
+                          <SelectItem value={ContentStatus.PUBLISHED}>Công khai</SelectItem>
                           <SelectItem value={ContentStatus.HIDDEN}>Ẩn</SelectItem>
-                          <SelectItem value={ContentStatus.ARCHIVED}>L� °u trữ</SelectItem>
+                          <SelectItem value={ContentStatus.ARCHIVED}>Lưu trữ</SelectItem>
                         </SelectGroup>
                       </SelectContent>
                     </Select>
                   )}
                 />
-                <Badge className={cn("border font-medium", statusBadgeClassName(selectedStatus))}>
+                {/* <Badge className={cn("border font-medium", statusBadgeClassName(selectedStatus))}>
                   {statusLabels[selectedStatus]}
-                </Badge>
-                <p className="text-xs text-slate-500">{statusHints[selectedStatus]}</p>
+                </Badge> */}
+                <p className="text-xs text-orange-500">{statusHints[selectedStatus]}</p>
               </div>
 
               <div className="grid gap-3 text-sm">
@@ -3390,7 +4094,7 @@ export default function BlogPostDetailPage() {
                   </span>
                 </div>
                 <div className="flex items-center justify-between gap-3">
-                  <span className="text-stone-500">Tҡc giả</span>
+                  <span className="text-stone-500">Tác giả</span>
                   <span className="truncate text-right font-medium text-stone-800">
                     {post?.author?.fullName || post?.author?.email || "admin"}
                   </span>
@@ -3405,133 +4109,85 @@ export default function BlogPostDetailPage() {
             </div>
           </Panel>
 
-          <Panel title="NgҴn ngữ" icon={<IconGlobe className="size-4" />}>
-            <div className="rounded-2xl border border-stone-200 bg-stone-50 p-3">
-              <div className="grid grid-cols-2 gap-2">
-                <label className="flex items-center justify-center gap-2 rounded-xl border border-orange-300 bg-white px-3 py-2 text-sm font-medium text-orange-700">
-                  <input type="radio" defaultChecked className="accent-orange-600" />
-                  VIE
-                </label>
-                <label className="flex items-center justify-center gap-2 rounded-xl border border-stone-200 bg-white px-3 py-2 text-sm font-medium text-stone-600">
-                  <input type="radio" disabled />
-                  ENG
-                </label>
-              </div>
-              <Button
-                type="button"
-                variant="outline"
-                className="mt-3 w-full rounded-xl border-stone-300"
-                disabled
-              >
-                Dá»⬹ch sang tiếng Anh
-              </Button>
-            </div>
-          </Panel>
-
-          <Panel title="NÒ¢ng cao" icon={<IconSeo className="size-4" />} defaultOpen={false}>
-            <div className="space-y-4">
-              <div className="space-y-2">
-                <Label>Meta title</Label>
-                <Input
-                  {...register("seo.metaTitle")}
-                  placeholder="Mặc định lấy tiêu đề"
-                  className="rounded-xl border-stone-300 focus-visible:ring-orange-200"
-                />
-              </div>
-              <div className="space-y-2">
-                <Label>Meta description</Label>
-                <Textarea
-                  {...register("seo.metaDescription")}
-                  placeholder="Mặc ����9nh lấy mҴ tả ngắn"
-                  className="min-h-24 rounded-xl border-stone-300 focus-visible:ring-orange-200"
-                />
-              </div>
-              <div className="space-y-2">
-                <Label>Canonical URL</Label>
-                <Input
-                  {...register("seo.canonicalUrl")}
-                  className="rounded-xl border-stone-300 font-mono text-xs focus-visible:ring-orange-200"
-                  placeholder="https://..."
-                />
-              </div>
-              <Separator />
-              <label className="flex items-center gap-3 rounded-xl border border-stone-200 px-3 py-2 text-sm">
-                <Controller
-                  name="seo.noIndex"
-                  control={control}
-                  render={({ field }) => (
-                    <Checkbox
-                      checked={Boolean(field.value)}
-                      onCheckedChange={(checked) => field.onChange(Boolean(checked))}
-                    />
-                  )}
-                />
-                KhÒ´ng index bÒ i nÒ y
-              </label>
-              <label className="flex items-center gap-3 rounded-xl border border-stone-200 px-3 py-2 text-sm">
-                <Controller
-                  name="seo.noFollow"
-                  control={control}
-                  render={({ field }) => (
-                    <Checkbox
-                      checked={Boolean(field.value)}
-                      onCheckedChange={(checked) => field.onChange(Boolean(checked))}
-                    />
-                  )}
-                />
-                KhÒ´ng follow link trong bÒ i
-              </label>
-            </div>
-          </Panel>
-
-          <Panel title="B��� cục bҠi viết" icon={<IconFileText className="size-4" />} defaultOpen={false}>
-            <div className="space-y-3 text-sm">
-              <label className="flex items-center gap-3 rounded-xl border border-orange-200 bg-orange-50 px-3 py-2 text-orange-800">
-                <input type="radio" defaultChecked className="accent-orange-600" />
-                Sidebar phải
-              </label>
-              <label className="flex items-center gap-3 rounded-xl border border-stone-200 bg-white px-3 py-2 text-stone-600">
-                <input type="radio" disabled />
-                KhÒ´ng sidebar
-              </label>
-              <label className="flex items-center gap-3 rounded-xl border border-stone-200 bg-white px-3 py-2 text-stone-600">
-                <input type="checkbox" defaultChecked className="accent-orange-600" />
-                Hiá»�n thá»⬹ breadcrumb
-              </label>
-            </div>
-          </Panel>
-
-          <Panel title="Thảo luận" icon={<IconFileText className="size-4" />} defaultOpen={false}>
+          {/* <Panel title="Thảo luận" icon={<IconFileText className="size-4" />} defaultOpen={false}>
             <div className="space-y-3 text-sm">
               <label className="flex items-center gap-3 rounded-xl border border-stone-200 bg-white px-3 py-2">
                 <input type="checkbox" defaultChecked className="accent-orange-600" />
-                Cho phҩp bҬnh luận
+                Cho pho phép bình luận
               </label>
               <label className="flex items-center gap-3 rounded-xl border border-stone-200 bg-white px-3 py-2">
                 <input type="checkbox" defaultChecked className="accent-orange-600" />
-                Hiá»�n thá»⬹ bÒ i viết liÒªn quan
+                Hiển thị bài viết liên quan
               </label>
             </div>
-          </Panel>
+          </Panel> */}
 
           <Panel title="Tags" icon={<IconSearch className="size-4" />} defaultOpen={false}>
-            <div className="max-h-64 space-y-2 overflow-auto pr-1">
-              {tags.length === 0 ? (
-                <p className="text-sm text-slate-500">Ch� °a cÒ³ tag blog.</p>
-              ) : (
-                tags.map((tag) => (
-                  <label
-                    key={tag.id}
-                    className="flex items-center gap-3 rounded-xl border border-stone-200 bg-white px-3 py-2 text-sm transition hover:border-orange-200 hover:bg-orange-50"
-                  >
-                    <Checkbox
-                      checked={selectedTagIds.includes(tag.id)}
-                      onCheckedChange={(checked) => toggleTag(tag.id, Boolean(checked))}
-                    />
-                    <span className="min-w-0 flex-1 truncate">{tag.name}</span>
-                  </label>
-                ))
-              )}
+            <div className="space-y-3">
+              <div className="flex gap-2">
+                <Input
+                  id="new-tag-input"
+                  placeholder="Tạo tag mới..."
+                  className="h-8 rounded-lg text-xs"
+                  onKeyDown={async (e) => {
+                    if (e.key !== "Enter") return
+                    e.preventDefault()
+                    e.stopPropagation()
+                    const input = e.currentTarget
+                    const name = input.value.trim()
+                    if (!name) return
+                    try {
+                      const newTag = await tagService.createTag({ name, slug: slugify(name), type: "BLOG" })
+                      setTags((prev) => [...prev, newTag])
+                      toggleTag(newTag.id, true)
+                      input.value = ""
+                    } catch {
+                      // Tag may already exist
+                    }
+                  }}
+                />
+                <Button
+                  type="button"
+                  size="sm"
+                  variant="outline"
+                  className="h-8 shrink-0 rounded-lg px-2"
+                  onClick={async () => {
+                    const input = document.getElementById("new-tag-input") as HTMLInputElement
+                    if (!input) return
+                    const name = input.value.trim()
+                    if (!name) return
+                    try {
+                      const newTag = await tagService.createTag({ name, slug: slugify(name), type: "BLOG" })
+                      setTags((prev) => [...prev, newTag])
+                      toggleTag(newTag.id, true)
+                      input.value = ""
+                    } catch {
+                      // Tag may already exist
+                    }
+                  }}
+                >
+                  <IconPlus className="size-3.5" />
+                </Button>
+              </div>
+              <div className="max-h-64 space-y-2 overflow-auto pr-1">
+                {tags.length === 0 ? (
+                  <p className="text-sm text-slate-500">Chưa có tag blog.</p>
+                ) : (
+                  tags.map((tag) => (
+                    <label
+                      key={tag.id}
+                      className="flex items-center gap-3 rounded-xl border border-stone-200 bg-white px-3 py-2 text-sm transition hover:border-orange-200 hover:bg-orange-50"
+                    >
+                      <Checkbox
+                        checked={selectedTagIds.includes(tag.id)}
+                        onCheckedChange={(checked) => toggleTag(tag.id, Boolean(checked))}
+                      />
+                      <span className="min-w-0 flex-1 truncate">{tag.name}</span>
+                    </label>
+                  ))
+                )}
+              </div>
+              <p className="text-xs text-stone-400">Nhập tên tag + Enter để tạo mới</p>
             </div>
           </Panel>
         </aside>
@@ -3540,7 +4196,7 @@ export default function BlogPostDetailPage() {
       <Dialog open={isPreviewOpen} onOpenChange={setIsPreviewOpen}>
         <DialogContent className="max-h-[88vh] max-w-5xl overflow-auto">
           <DialogHeader>
-            <DialogTitle>Xem tr� °á»⬺c bÒ i viết</DialogTitle>
+            <DialogTitle>Xem trước bài viết</DialogTitle>
             <DialogDescription>
               Preview nhanh nội dung trước khi lưu lên backend.
             </DialogDescription>
@@ -3549,7 +4205,7 @@ export default function BlogPostDetailPage() {
             {coverUrl ? (
               <img
                 src={coverUrl}
-                alt={preview.title || "Ảnh ���ại di�!n bҠi viết"}
+                alt={preview.title || "Ảnh đại diện bài viết"}
                 className="aspect-[16/8] w-full rounded-2xl object-cover"
               />
             ) : null}
@@ -3561,10 +4217,10 @@ export default function BlogPostDetailPage() {
                 {statusLabels[selectedStatus]}
               </Badge>
               <h2 className="text-3xl font-bold tracking-tight">
-                {preview.title || "TiҪu ���ề bҠi viết"}
+                {preview.title || "Tiêu đề bài viết"}
               </h2>
               <p className="text-muted-foreground">
-                {preview.excerpt || "MÒ´ tả ngắn sẽ hiá»�n thá»⬹ ở ���Ò¢y."}
+                {preview.excerpt || "Mô tả ngắn sẽ hiển thị ở đây."}
               </p>
             </header>
 
@@ -3582,7 +4238,7 @@ export default function BlogPostDetailPage() {
             <div
               className="prose prose-sm max-w-none rounded-2xl border bg-white p-6 leading-7 [&_code]:font-semibold [&_code]:text-orange-500 [&_pre]:m-0 [&_pre]:rounded-none [&_pre]:border-0 [&_pre]:bg-transparent [&_pre]:p-0 [&_pre]:text-inherit [&_pre_code]:border-0 [&_pre_code]:bg-transparent [&_pre_code]:p-0 [&_pre_code]:font-semibold [&_pre_code]:text-orange-500"
               dangerouslySetInnerHTML={{
-                __html: preview.content || "<p>Nội dung bài viết sẽ hiển thị ở đây.</p>",
+                __html: publishPreviewHtml || "<p>Nội dung bài viết sẽ hiển thị ở đây.</p>",
               }}
             />
           </article>
@@ -3667,6 +4323,261 @@ export default function BlogPostDetailPage() {
         }}
         title="Chọn ảnh đại diện bài viết"
       />
+
+      {/* SEO Slide-over Drawer */}
+      {isSeoDrawerOpen && (
+        <div
+          className="fixed top-0 right-0 z-50 h-full w-[420px] max-w-[90vw] transform bg-white shadow-2xl transition-transform duration-300 ease-in-out translate-x-0 overflow-y-auto border-l border-stone-200"
+          role="complementary"
+          aria-label="SEO Panel"
+          onKeyDown={(e) => {
+            if (e.key === "Escape") setIsSeoDrawerOpen(false)
+          }}
+        >
+            {/* Header */}
+            <div className="sticky top-0 z-10 flex items-center justify-between border-b border-stone-200 bg-white px-5 py-4">
+              <h2 className="text-lg font-semibold text-stone-800 flex items-center gap-2">
+                <IconSeo className="size-5 text-orange-600" />
+                SEO
+              </h2>
+              <button
+                type="button"
+                onClick={() => setIsSeoDrawerOpen(false)}
+                className="rounded-lg p-1.5 text-stone-500 hover:bg-stone-100 hover:text-stone-700 focus:outline-none focus-visible:ring-2 focus-visible:ring-orange-400"
+                aria-label="Đóng bảng SEO"
+                autoFocus
+              >
+                <svg xmlns="http://www.w3.org/2000/svg" className="size-5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                  <line x1="18" y1="6" x2="6" y2="18" />
+                  <line x1="6" y1="6" x2="18" y2="18" />
+                </svg>
+              </button>
+            </div>
+
+            {/* Content */}
+            <div className="space-y-4 p-5">
+              <SeoScoringPanel
+                result={seoResult}
+                focusKeyword={focusKeyword}
+                onFocusKeywordChange={setFocusKeyword}
+              />
+
+              {/* Snippet Preview */}
+              <div className="rounded-2xl border border-stone-200 bg-white p-4 text-sm">
+                <p className="mb-2 text-xs font-medium uppercase tracking-wide text-stone-400">Xem trước kết quả tìm kiếm</p>
+                <p className="truncate text-xs text-green-700">
+                  https://dukystore.com/blog/{generatedSlug}
+                </p>
+                <p className="mt-0.5 truncate text-lg font-medium text-blue-700 hover:underline">
+                  {preview.seo?.metaTitle || preview.title || "Tiêu đề SEO sẽ hiển thị ở đây"}
+                </p>
+                <p className="mt-1 line-clamp-2 text-sm text-stone-600">
+                  {preview.seo?.metaDescription || preview.excerpt || "Mô tả SEO sẽ hiển thị ở đây. Google thường hiển thị 150-160 ký tự."}
+                </p>
+              </div>
+
+              {/* Facebook Share Preview */}
+              <div className="rounded-2xl border border-stone-200 bg-white text-sm overflow-hidden">
+                <p className="px-4 pt-3 pb-1 text-xs font-medium uppercase tracking-wide text-stone-400">Xem trước khi share Facebook</p>
+                <div className="mx-3 mb-3 overflow-hidden rounded-lg border border-stone-200">
+                  {coverUrl ? (
+                    <div className="h-36 w-full bg-stone-100">
+                      <img src={coverUrl} alt="" className="h-full w-full object-cover" />
+                    </div>
+                  ) : (
+                    <div className="flex h-36 w-full items-center justify-center bg-stone-100 text-xs text-stone-400">
+                      Chưa có ảnh đại diện
+                    </div>
+                  )}
+                  <div className="border-t border-stone-200 bg-stone-50 px-3 py-2">
+                    <p className="text-[11px] uppercase text-stone-400">dukystore.com</p>
+                    <p className="mt-0.5 truncate text-sm font-semibold text-stone-900">
+                      {preview.seo?.ogTitle || preview.seo?.metaTitle || preview.title || "Tiêu đề bài viết"}
+                    </p>
+                    <p className="mt-0.5 line-clamp-2 text-xs text-stone-500">
+                      {preview.seo?.ogDescription || preview.seo?.metaDescription || preview.excerpt || "Mô tả bài viết"}
+                    </p>
+                  </div>
+                </div>
+              </div>
+
+              {/* SEO Length Indicators */}
+              <div className="space-y-3 rounded-xl border border-stone-200 bg-stone-50 p-3">
+                {(() => {
+                  const titleLen = (preview.seo?.metaTitle || preview.title || "").length
+                  const slugLen = generatedSlug.length
+                  const descLen = (preview.seo?.metaDescription || preview.excerpt || "").length
+                  const titleMax = 60
+                  const slugMax = 75
+                  const descMax = 160
+                  const getColor = (len: number, max: number) => len <= max ? "bg-green-500" : "bg-red-500"
+                  const getTextColor = (len: number, max: number) => len <= max ? "text-green-700" : "text-red-600"
+                  return (
+                    <>
+                      <div className="space-y-1">
+                        <div className="flex items-center justify-between text-xs">
+                          <span className="font-medium text-stone-700">Tiêu đề</span>
+                          <span className={getTextColor(titleLen, titleMax)}>{titleLen} / {titleMax}</span>
+                        </div>
+                        <div className="h-1.5 w-full overflow-hidden rounded-full bg-stone-200">
+                          <div className={`h-full rounded-full transition-all ${getColor(titleLen, titleMax)}`} style={{ width: `${Math.min((titleLen / titleMax) * 100, 100)}%` }} />
+                        </div>
+                        {titleLen > titleMax && <p className="text-xs text-red-600">⚠ Tiêu đề quá dài, Google sẽ cắt bớt. Nên ≤ 60 ký tự.</p>}
+                      </div>
+                      <div className="space-y-1">
+                        <div className="flex items-center justify-between text-xs">
+                          <span className="font-medium text-stone-700">URL slug</span>
+                          <span className={getTextColor(slugLen, slugMax)}>{slugLen} / {slugMax}</span>
+                        </div>
+                        <div className="h-1.5 w-full overflow-hidden rounded-full bg-stone-200">
+                          <div className={`h-full rounded-full transition-all ${getColor(slugLen, slugMax)}`} style={{ width: `${Math.min((slugLen / slugMax) * 100, 100)}%` }} />
+                        </div>
+                        {slugLen > slugMax && <p className="text-xs text-red-600">⚠ URL quá dài. Nên ≤ 75 ký tự.</p>}
+                      </div>
+                      <div className="space-y-1">
+                        <div className="flex items-center justify-between text-xs">
+                          <span className="font-medium text-stone-700">Mô tả</span>
+                          <span className={getTextColor(descLen, descMax)}>{descLen} / {descMax}</span>
+                        </div>
+                        <div className="h-1.5 w-full overflow-hidden rounded-full bg-stone-200">
+                          <div className={`h-full rounded-full transition-all ${getColor(descLen, descMax)}`} style={{ width: `${Math.min((descLen / descMax) * 100, 100)}%` }} />
+                        </div>
+                        {descLen > descMax && <p className="text-xs text-red-600">⚠ Mô tả quá dài, Google sẽ cắt bớt. Nên ≤ 160 ký tự.</p>}
+                        {descLen > 0 && descLen < 120 && <p className="text-xs text-orange-600">⚠ Mô tả hơi ngắn. Nên viết 120-160 ký tự để tối ưu CTR.</p>}
+                      </div>
+                    </>
+                  )
+                })()}
+              </div>
+
+              {/* Meta Inputs */}
+              <div className="space-y-3">
+                <div className="space-y-2">
+                  <div className="flex items-center justify-between">
+                    <Label>Tiêu đề SEO</Label>
+                    <span className="text-xs text-stone-400">{(preview.seo?.metaTitle || preview.title || "").length} / 60</span>
+                  </div>
+                  <Input
+                    {...register("seo.metaTitle")}
+                    placeholder={preview.title || "Tự động lấy tiêu đề bài viết"}
+                    className="rounded-xl border-stone-300 focus-visible:ring-orange-200"
+                  />
+                </div>
+                <div className="space-y-2">
+                  <Label>URL chuẩn (Canonical)</Label>
+                  <Input
+                    {...register("seo.canonicalUrl")}
+                    placeholder="https://..."
+                    className="rounded-xl border-stone-300 font-mono text-xs focus-visible:ring-orange-200"
+                  />
+                </div>
+                <div className="space-y-2">
+                  <div className="flex items-center justify-between">
+                    <Label>Mô tả SEO</Label>
+                    <span className="text-xs text-stone-400">{(preview.seo?.metaDescription || preview.excerpt || "").length} / 160</span>
+                  </div>
+                  <Textarea
+                    {...register("seo.metaDescription")}
+                    placeholder={preview.excerpt || "Tự động lấy mô tả ngắn của bài viết"}
+                    className="min-h-20 rounded-xl border-stone-300 focus-visible:ring-orange-200"
+                  />
+                </div>
+              </div>
+
+              {/* Table of Contents Preview */}
+              {tocItems.length > 0 && (
+                <div className="space-y-2">
+                  <p className="text-xs font-medium uppercase tracking-wide text-stone-400">Mục lục</p>
+                  <div className="rounded-xl border border-stone-200 bg-stone-50 p-3">
+                    <ul className="space-y-1">
+                      {tocItems.map((item, index) => (
+                        <li
+                          key={`${item.id}-${index}`}
+                          className="text-sm text-stone-700"
+                          style={{ paddingLeft: item.level === 3 ? '16px' : '0' }}
+                        >
+                          <span className="text-stone-400 mr-1.5">{item.level === 2 ? '●' : '○'}</span>
+                          <span className={item.level === 2 ? 'font-medium' : ''}>{item.text}</span>
+                        </li>
+                      ))}
+                    </ul>
+                    <p className="mt-2 text-xs text-stone-400">{tocItems.length} heading được phát hiện</p>
+                  </div>
+                </div>
+              )}
+
+              {/* Internal Link Suggestions */}
+              {internalLinkSuggestions.length > 0 && (
+                <div className="space-y-2">
+                  <p className="text-xs font-medium uppercase tracking-wide text-stone-400">Gợi ý liên kết nội bộ</p>
+                  <div className="rounded-xl border border-stone-200 bg-stone-50 p-3">
+                    <ul className="space-y-2">
+                      {internalLinkSuggestions.map((suggestion) => (
+                        <li key={suggestion.slug} className="flex items-center justify-between gap-2 text-sm">
+                          <button
+                            type="button"
+                            onClick={() => {
+                              const link = `https://dukystore.com/blog/${suggestion.slug}`
+                              navigator.clipboard.writeText(link)
+                              setCopiedLink(link)
+                              setTimeout(() => setCopiedLink(null), 3000)
+                            }}
+                            className="min-w-0 truncate text-left text-orange-700 hover:underline"
+                            title="Click để copy link"
+                          >
+                            📋 {suggestion.title}
+                          </button>
+                          <span className="shrink-0 rounded-full bg-orange-100 px-2 py-0.5 text-[10px] font-semibold text-orange-700">
+                            {Math.round(suggestion.relevance * 100)}%
+                          </span>
+                        </li>
+                      ))}
+                    </ul>
+                    <p className="mt-2 text-xs text-stone-400">Click để copy link • Dán vào nội dung bài viết</p>
+                    {copiedLink && copiedLink.includes("/blog/") && (
+                      <p className="mt-1 rounded-lg bg-green-50 px-2 py-1 text-xs text-green-700">✓ Đã copy</p>
+                    )}
+                  </div>
+                </div>
+              )}
+
+              {/* Gợi ý sản phẩm liên quan */}
+              {productSuggestions.length > 0 && (
+                <div className="space-y-2">
+                  <p className="text-xs font-medium uppercase tracking-wide text-stone-400">Gợi ý sản phẩm</p>
+                  <div className="rounded-xl border border-stone-200 bg-stone-50 p-3">
+                    <ul className="space-y-2">
+                      {productSuggestions.map((product) => (
+                        <li key={product.slug} className="flex items-center justify-between gap-2 text-sm">
+                          <button
+                            type="button"
+                            onClick={() => {
+                              const link = `https://dukystore.com/san-pham/${product.slug}`
+                              navigator.clipboard.writeText(link)
+                              setCopiedLink(link)
+                              setTimeout(() => setCopiedLink(null), 3000)
+                            }}
+                            className="min-w-0 truncate text-left text-green-700 hover:underline"
+                            title="Click để copy link sản phẩm"
+                          >
+                            🛒 {product.title}
+                          </button>
+                          <span className="shrink-0 rounded-full bg-green-100 px-2 py-0.5 text-[10px] font-semibold text-green-700">
+                            {Math.round(product.relevance * 100)}%
+                          </span>
+                        </li>
+                      ))}
+                    </ul>
+                    <p className="mt-2 text-xs text-stone-400">Click để copy link SP • Chèn vào bài để kêu gọi mua hàng</p>
+                    {copiedLink && copiedLink.includes("/san-pham/") && (
+                      <p className="mt-1 rounded-lg bg-green-50 px-2 py-1 text-xs text-green-700">✓ Đã copy</p>
+                    )}
+                  </div>
+                </div>
+              )}
+            </div>
+          </div>
+      )}
     </form>
   )
 }
