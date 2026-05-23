@@ -1,4 +1,4 @@
-﻿"use client"
+"use client"
 
 import * as React from "react"
 import Link from "next/link"
@@ -1993,10 +1993,22 @@ function isBlockWrapperHtml(html: string) {
   )
 }
 
+function isBlockContentEmpty(blockHtml: string) {
+  const unwrapped = unwrapBlockHtml(blockHtml)
+  // Strip all HTML tags, &nbsp;, whitespace
+  const textOnly = unwrapped
+    .replace(/<[^>]*>/g, "")
+    .replace(/&nbsp;/gi, "")
+    .replace(/\s+/g, "")
+    .trim()
+  return textOnly.length === 0
+}
+
 function mergeBlocksToContent(blocks: string[]) {
   return blocks
     .map((block) => flattenNestedBlockWrappers(block))
     .filter(Boolean)
+    .filter((block) => !isBlockContentEmpty(block))
     .map((block) =>
       isBlockWrapperHtml(block)
         ? block
@@ -2279,6 +2291,13 @@ function normalizePayload(
   const generatedSlug = slugify(data.slug || data.title)
   const contentWithTitleBlock = ensureTitleBlockContent(data.content, data.title)
   const contentWithHeadingIds = injectHeadingIds(contentWithTitleBlock.trim())
+  // Strip empty blocks before saving
+  const contentBlocks = contentWithHeadingIds
+    .split(CONTENT_BLOCK_SEPARATOR)
+    .map((b) => b.trim())
+    .filter(Boolean)
+    .filter((b) => !isBlockContentEmpty(b))
+  const cleanedContent = contentBlocks.join(` ${CONTENT_BLOCK_SEPARATOR} `)
   const seo = {
     ...(data.seo ?? {}),
     ...(seoExtras ?? {}),
@@ -2288,7 +2307,7 @@ function normalizePayload(
     title: data.title.trim(),
     slug: generatedSlug || emptyToNull(data.slug),
     excerpt: emptyToNull(data.excerpt),
-    content: minifyHtmlForStorage(contentWithHeadingIds),
+    content: minifyHtmlForStorage(cleanedContent),
     coverMediaId: emptyToNull(data.coverMediaId),
     status: data.status ?? ContentStatus.DRAFT,
     categoryIds: data.categoryIds ?? [],
@@ -3475,7 +3494,7 @@ function BlogRichTextEditor({
         </div>
       ) : null}
 
-      <div className="flex flex-wrap items-center gap-1 border-b border-stone-200 bg-white px-3 py-2">
+      <div className="sticky top-[76px] z-30 flex flex-wrap items-center gap-1 border-b border-stone-200 bg-white/95 px-3 py-2 backdrop-blur-sm">
         <select
           value={toolbarState.headingValue}
           onChange={(event) => {
@@ -3726,12 +3745,6 @@ function BlogRichTextEditor({
           onClick={() => editor?.chain().focus().toggleHeading({ level: 3 }).run()}
         >
           <IconH3 className="size-4" />
-        </EditorButton>
-        <EditorButton
-          label="�� °á»ng phÒ¢n cÒ¡ch"
-          onClick={() => editor?.chain().focus().setHorizontalRule().run()}
-        >
-          <IconLineDashed className="size-4" />
         </EditorButton>
         <EditorButton
           label="Xuống dòng"
@@ -4410,6 +4423,9 @@ export default function BlogPostDetailPage() {
         }
         setAutoDraftPostId(created.id)
         setValue("slug", created.slug, { shouldDirty: false })
+        if (typeof window !== "undefined") {
+          window.history.replaceState(null, "", `/blog/${created.id}`)
+        }
       }
 
       lastAutoSaveSignatureRef.current = signature

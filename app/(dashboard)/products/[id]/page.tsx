@@ -91,6 +91,8 @@ import { productAttributeService } from "@/lib/api/services/product-attribute.se
 import { productService } from "@/lib/api/services/product.service"
 import { variantService } from "@/lib/api/services/variant.service"
 import { cn } from "@/lib/utils"
+import { TiptapEditor } from "@/components/ui/tiptap-editor"
+import { MediaPickerDialog } from "@/components/media/media-picker-dialog"
 import {
   analyzeProductSeo,
   type ProductSeoAnalysis,
@@ -326,7 +328,18 @@ const getExternalButtonIcon = (value?: string | null) => {
 
 const tags = ["chelsea boot", "da bò", "đế cao su", "nam nữ", "Duky"]
 const brands = ["DUKY", "Duky Classic", "Duky Premium"]
-const gallerySlots = ["Ảnh 1", "Ảnh 2", "Ảnh 3", "Ảnh 4", "Ảnh 5"]
+const gallerySlots = [
+  "Ảnh 1",
+  "Ảnh 2",
+  "Ảnh 3",
+  "Ảnh 4",
+  "Ảnh 5",
+  "Ảnh 6",
+  "Ảnh 7",
+  "Ảnh 8",
+  "Ảnh 9",
+  "Ảnh 10",
+]
 const storefrontUrl = process.env.NEXT_PUBLIC_STOREFRONT_URL?.replace(/\/$/, "")
 const normalizeVariantTerm = (value: string) =>
   value
@@ -1521,6 +1534,19 @@ function RichTextEditorWithImageTools({
   )
 }
 
+function slugify(text: string): string {
+  return text
+    .toString()
+    .toLowerCase()
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .replace(/đ/g, "d")
+    .replace(/[^a-z0-9\s-]/g, "")
+    .trim()
+    .replace(/\s+/g, "-")
+    .replace(/-+/g, "-")
+}
+
 export default function ProductDetailPage() {
   const params = useParams()
   const router = useRouter()
@@ -1550,7 +1576,7 @@ export default function ProductDetailPage() {
   const [variantGroups, setVariantGroups] = React.useState<
     VariantAttributeGroup[]
   >([createVariantGroup()])
-  const [combineVariantGroups, setCombineVariantGroups] = React.useState(false)
+  const [combineVariantGroups, setCombineVariantGroups] = React.useState(true)
   const [variantDrafts, setVariantDrafts] = React.useState<VariantDraft[]>([])
   const [isLoadingVariantTerms, setIsLoadingVariantTerms] = React.useState(true)
   const [variantSizeInput, setVariantSizeInput] = React.useState("")
@@ -1700,6 +1726,49 @@ export default function ProductDetailPage() {
     ]
   )
 
+  // Tự động sinh Slug và SKU từ tên sản phẩm khi thêm mới
+  React.useEffect(() => {
+    if (!isNew || !productName) return
+
+    const nextSlug = slugify(productName)
+    setValue("slug", nextSlug, { shouldDirty: true, shouldValidate: true })
+
+    const currentSku = getValues("sku")
+    // Tự sinh SKU nếu trường SKU đang trống
+    if (!currentSku) {
+      const cleanSlug = nextSlug.toUpperCase().replace(/-/g, "")
+      const generatedSku = cleanSlug ? `DKS-${cleanSlug}` : ""
+      setValue("sku", generatedSku, { shouldDirty: true, shouldValidate: true })
+    }
+  }, [productName, isNew, setValue, getValues])
+
+  // Tự động sinh thông tin SEO khi thêm mới hoặc các trường tương ứng thay đổi
+  React.useEffect(() => {
+    if (!isNew) return
+
+    // 1. Tự động sinh Meta Title từ tên sản phẩm
+    const currentMetaTitle = getValues("seo.metaTitle")
+    if (productName && (!currentMetaTitle || currentMetaTitle === `${productName} | Duky Store`)) {
+      setValue("seo.metaTitle", `${productName} | Duky Store`, { shouldDirty: true, shouldValidate: true })
+    }
+
+    // 2. Tự động sinh Meta Description từ mô tả ngắn
+    const currentMetaDesc = getValues("seo.metaDescription")
+    if (shortDescription) {
+      const cleanDesc = shortDescription.trim().slice(0, 160)
+      if (!currentMetaDesc || currentMetaDesc === cleanDesc) {
+        setValue("seo.metaDescription", cleanDesc, { shouldDirty: true, shouldValidate: true })
+      }
+    }
+
+    // 3. Tự động sinh Canonical URL từ slug
+    const currentCanonical = getValues("seo.canonicalUrl")
+    const expectedCanonical = slug ? `https://dukystore.vn/products/${slug}` : ""
+    if (slug && (!currentCanonical || currentCanonical === expectedCanonical)) {
+      setValue("seo.canonicalUrl", expectedCanonical, { shouldDirty: true, shouldValidate: true })
+    }
+  }, [productName, shortDescription, slug, isNew, setValue, getValues])
+
   React.useEffect(() => {
     const fetchCategories = async () => {
       try {
@@ -1833,9 +1902,7 @@ export default function ProductDetailPage() {
       return
     }
 
-    const rows = combineVariantGroups
-      ? combineVariantAxes(axes)
-      : axes.flatMap((axis) => axis.map((value) => [value]))
+    const rows = combineVariantAxes(axes)
     const basePrice = originalPrice ?? 0
     const baseSalePrice = salePrice ?? null
     const baseSku = getValues("sku") || slug || "DUKY"
@@ -2063,6 +2130,7 @@ export default function ProductDetailPage() {
           analysisJson: seoAnalysis,
         },
       })
+      let nextId = params.id as string
       if (isNew) {
         const createdProduct =
           await productService.createProduct(productPayload)
@@ -2072,10 +2140,20 @@ export default function ProductDetailPage() {
         ) {
           await createDraftVariants(createdProduct.id, variantDrafts)
         }
+        nextId = createdProduct.id
+        setDetailFeedback({
+          message: "Tạo sản phẩm mới thành công!",
+          tone: "success",
+        })
+        router.replace(`/products/${nextId}`)
       } else {
         await productService.updateProduct(params.id as string, productPayload)
+        setDetailFeedback({
+          message: "Cập nhật sản phẩm thành công!",
+          tone: "success",
+        })
+        reset(data)
       }
-      router.push("/products")
     } catch (error) {
       console.error("Failed to save product", error)
     } finally {
@@ -2617,70 +2695,12 @@ export default function ProductDetailPage() {
       onSubmit={handleSubmit(onSubmit, onInvalidSubmit)}
       className="max-w-9xl mx-auto flex w-full flex-col gap-6 rounded-[1.75rem] p-2 md:p-4 [&_[data-slot=select-trigger]]:bg-white [&_input]:bg-white [&_textarea]:bg-white"
     >
-      <Dialog open={mediaPickerOpen} onOpenChange={setMediaPickerOpen}>
-        <DialogContent className="max-w-4xl rounded-2xl">
-          <div className="flex flex-col gap-4">
-            <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
-              <div>
-                <DialogTitle>Chọn ảnh từ thư viện Media</DialogTitle>
-                <p className="mt-1 text-sm text-muted-foreground">
-                  Dùng ảnh đã upload để gắn vào ảnh đại diện hoặc gallery sản
-                  phẩm.
-                </p>
-              </div>
-              <div className="relative w-full md:max-w-xs">
-                <IconSearch className="pointer-events-none absolute top-1/2 left-3 size-4 -translate-y-1/2 text-muted-foreground" />
-                <Input
-                  value={mediaSearch}
-                  onChange={(event) => setMediaSearch(event.target.value)}
-                  placeholder="Tìm ảnh..."
-                  className="rounded-xl pl-9"
-                />
-              </div>
-            </div>
-
-            <div className="max-h-[58vh] overflow-y-auto pr-1">
-              {isLoadingMedia ? (
-                <div className="flex min-h-[220px] items-center justify-center gap-2 text-sm text-muted-foreground">
-                  <IconLoader2 className="size-4 animate-spin" />
-                  Đang tải thư viện ảnh...
-                </div>
-              ) : mediaItems.length ? (
-                <div className="grid grid-cols-2 gap-3 md:grid-cols-4 lg:grid-cols-5">
-                  {mediaItems.map((media) => (
-                    <button
-                      key={media.id}
-                      type="button"
-                      className="group overflow-hidden rounded-xl border bg-white text-left transition hover:border-primary hover:shadow-sm"
-                      onClick={() => selectMediaItem(media)}
-                    >
-                      <span className="block aspect-square overflow-hidden bg-muted">
-                        {/* eslint-disable-next-line @next/next/no-img-element */}
-                        <img
-                          src={media.url}
-                          alt={media.altText || ""}
-                          className="size-full object-cover"
-                        />
-                      </span>
-                      <span className="block truncate px-2 py-2 text-xs font-medium group-hover:text-primary">
-                        {media.title || media.filename || media.fileName}
-                      </span>
-                    </button>
-                  ))}
-                </div>
-              ) : (
-                <div className="flex min-h-[220px] flex-col items-center justify-center rounded-2xl border border-dashed bg-muted/20 text-center">
-                  <IconLibraryPhoto className="mb-2 size-8 text-muted-foreground" />
-                  <p className="text-sm font-medium">Chưa có ảnh phù hợp</p>
-                  <p className="mt-1 text-xs text-muted-foreground">
-                    Thử đổi từ khóa hoặc upload ảnh mới.
-                  </p>
-                </div>
-              )}
-            </div>
-          </div>
-        </DialogContent>
-      </Dialog>
+      <MediaPickerDialog
+        open={mediaPickerOpen}
+        onOpenChange={setMediaPickerOpen}
+        onSelect={selectMediaItem}
+        title={mediaPickerMode === "featured" ? "Chọn ảnh đại diện" : "Chọn ảnh Gallery"}
+      />
 
       <div className="-mx-2 -mt-2 flex flex-col gap-4 border-b border-orange-100/70 px-2 pt-2 pb-4 md:-mx-4 md:flex-row md:items-center md:justify-between md:px-4">
         <div className="flex items-center gap-4">
@@ -2747,34 +2767,9 @@ export default function ProductDetailPage() {
                 )}
               </div>
 
-              <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
-                <div className="flex flex-col gap-2">
-                  <Label htmlFor="slug">Slug *</Label>
-                  <Input
-                    id="slug"
-                    {...register("slug")}
-                    className="rounded-xl"
-                  />
-                  {errors.slug && (
-                    <p className="text-xs text-destructive">
-                      {errors.slug.message as string}
-                    </p>
-                  )}
-                </div>
-                <div className="flex flex-col gap-2">
-                  <Label htmlFor="sku">SKU</Label>
-                  <Input
-                    id="sku"
-                    {...register("sku")}
-                    className="rounded-xl font-mono"
-                  />
-                  {errors.sku && (
-                    <p className="text-xs text-destructive">
-                      {errors.sku.message as string}
-                    </p>
-                  )}
-                </div>
-              </div>
+              {/* Ẩn Slug và SKU trên giao diện nhưng vẫn giữ input ẩn để tự sinh và submit dữ liệu */}
+              <input type="hidden" {...register("slug")} />
+              <input type="hidden" {...register("sku")} />
 
               <div className="rounded-xl border border-orange-100 bg-orange-50/35 p-3 text-sm">
                 <span className="font-medium">Permalink: </span>
@@ -2794,10 +2789,10 @@ export default function ProductDetailPage() {
                   name="description"
                   control={control}
                   render={({ field }) => (
-                    <RichTextEditorWithImageTools
+                    <TiptapEditor
                       value={field.value || ""}
                       onChange={field.onChange}
-                      minHeightClass="[&_.ql-editor]:min-h-[360px]"
+                      minHeightClass="min-h-[360px]"
                     />
                   )}
                 />
@@ -3373,9 +3368,9 @@ export default function ProductDetailPage() {
                 {showAttributesTab && (
                   <TabsContent
                     value="attributes"
-                    className="flex flex-col gap-4"
+                    className="flex flex-col gap-4 min-w-0 w-full"
                   >
-                    <div className="rounded-xl border bg-muted/20 p-4">
+                    <div className="rounded-xl border bg-muted/20 p-4 min-w-0 w-full">
                       <div className="flex flex-col gap-1">
                         <Label>Chon bien the tu danh sach /variants</Label>
                         <p className="text-xs text-muted-foreground">
@@ -3398,177 +3393,169 @@ export default function ProductDetailPage() {
                           return (
                             <div
                               key={group.key}
-                              className="rounded-xl border bg-white p-3"
+                              className="rounded-xl border bg-white p-4 min-w-0 w-full flex flex-col gap-4"
                             >
-                              <div className="grid gap-3 md:grid-cols-[240px_1fr_auto] md:items-start">
-                                <div className="flex flex-col gap-2">
-                                  <Label>Bien the {index + 1}</Label>
-                                  <Select
-                                    value={group.attributeId || undefined}
-                                    onValueChange={(attributeId) =>
-                                      updateVariantGroup(group.key, {
-                                        attributeId,
-                                        selectedTermIds: [],
-                                        newTermName: "",
-                                      })
-                                    }
-                                  >
-                                    <SelectTrigger className="rounded-xl">
-                                      <SelectValue placeholder="Chon thuoc tinh" />
-                                    </SelectTrigger>
-                                    <SelectContent>
-                                      {productAttributes.map((item) => (
-                                        <SelectItem
-                                          key={item.id}
-                                          value={item.id}
-                                          disabled={usedAttributeIds.includes(
-                                            item.id
-                                          )}
-                                        >
-                                          {item.name}
-                                        </SelectItem>
-                                      ))}
-                                    </SelectContent>
-                                  </Select>
-                                </div>
-
-                                <div className="flex flex-col gap-3">
-                                  <div className="flex flex-wrap gap-2">
-                                    {isLoadingVariantTerms ? (
-                                      <span className="text-xs text-muted-foreground">
-                                        Dang tai bien the...
-                                      </span>
-                                    ) : attribute ? (
-                                      attribute.terms.length ? (
-                                        attribute.terms.map((term) => {
-                                          const selected =
-                                            group.selectedTermIds.includes(
-                                              term.id
-                                            )
-                                          const colorValue =
-                                            getTermColorValue(term)
-                                          return (
-                                            <Button
-                                              key={term.id}
-                                              type="button"
-                                              variant={
-                                                selected
-                                                  ? "secondary"
-                                                  : "outline"
-                                              }
-                                              size="sm"
-                                              className="rounded-full"
-                                              onClick={() =>
-                                                toggleGroupTerm(
-                                                  group.key,
-                                                  term.id
-                                                )
-                                              }
-                                            >
-                                              {colorValue && (
-                                                <span
-                                                  className="size-3 rounded-full border"
-                                                  style={{
-                                                    backgroundColor: colorValue,
-                                                  }}
-                                                />
-                                              )}
-                                              {term.name}
-                                            </Button>
-                                          )
+                              {/* Hang 1: Tieu de, Chon thuoc tinh va nut Xoa */}
+                              <div className="flex flex-col gap-2 md:flex-row md:items-center md:justify-between">
+                                <div className="flex flex-1 flex-col gap-2 md:flex-row md:items-center gap-x-4">
+                                  <Label className="text-sm font-semibold text-foreground min-w-[80px]">Bien the {index + 1}</Label>
+                                  <div className="w-full md:w-[240px]">
+                                    <Select
+                                      value={group.attributeId || undefined}
+                                      onValueChange={(attributeId) =>
+                                        updateVariantGroup(group.key, {
+                                          attributeId,
+                                          selectedTermIds: [],
+                                          newTermName: "",
                                         })
-                                      ) : (
-                                        <span className="text-xs text-muted-foreground">
-                                          Thuoc tinh nay chua co item.
-                                        </span>
-                                      )
-                                    ) : (
-                                      <span className="text-xs text-muted-foreground">
-                                        Chon thuoc tinh de hien item.
-                                      </span>
-                                    )}
+                                      }
+                                    >
+                                      <SelectTrigger className="rounded-xl h-9">
+                                        <SelectValue placeholder="Chon thuoc tinh" />
+                                      </SelectTrigger>
+                                      <SelectContent>
+                                        {productAttributes.map((item) => (
+                                          <SelectItem
+                                            key={item.id}
+                                            value={item.id}
+                                            disabled={usedAttributeIds.includes(
+                                              item.id
+                                            )}
+                                          >
+                                            {item.name}
+                                          </SelectItem>
+                                        ))}
+                                      </SelectContent>
+                                    </Select>
                                   </div>
-
-                                  {attribute && (
-                                    <div className="flex gap-2">
-                                      <Input
-                                        value={group.newTermName}
-                                        onChange={(event) =>
-                                          updateVariantGroup(group.key, {
-                                            newTermName: event.target.value,
-                                          })
-                                        }
-                                        className="h-9 rounded-xl"
-                                        placeholder={`Them item cho ${attribute.name}`}
-                                      />
-                                      <Button
-                                        type="button"
-                                        variant="outline"
-                                        className="rounded-xl"
-                                        disabled={!group.newTermName.trim()}
-                                        onClick={() =>
-                                          createTermForGroup(group.key)
-                                        }
-                                      >
-                                        <IconPlus data-icon="inline-start" />
-                                        Them
-                                      </Button>
-                                    </div>
-                                  )}
                                 </div>
-
                                 <Button
                                   type="button"
                                   variant="ghost"
                                   size="icon"
-                                  className="rounded-xl text-destructive"
+                                  className="self-end md:self-auto rounded-xl text-destructive hover:bg-destructive/10 hover:text-destructive"
                                   onClick={() => removeVariantGroup(group.key)}
                                 >
-                                  <IconTrash />
+                                  <IconTrash className="size-4" />
                                 </Button>
+                              </div>
+
+                              {/* Hang 2: Noi dung item thuoc tinh nam phia duoi, co border-l de thuot le phan biet */}
+                              <div className="pl-4 md:pl-6 border-l-2 border-orange-100/70 flex flex-col gap-3 min-w-0 w-full">
+                                <div className="flex flex-wrap gap-2">
+                                  {isLoadingVariantTerms ? (
+                                    <span className="text-xs text-muted-foreground">
+                                      Dang tai bien the...
+                                    </span>
+                                  ) : attribute ? (
+                                    attribute.terms.length ? (
+                                      attribute.terms.map((term) => {
+                                        const selected =
+                                          group.selectedTermIds.includes(
+                                            term.id
+                                          )
+                                        const colorValue =
+                                          getTermColorValue(term)
+                                        return (
+                                          <Button
+                                            key={term.id}
+                                            type="button"
+                                            variant={selected ? "default" : "outline"}
+                                            size="sm"
+                                            className={`rounded-full h-8 px-3.5 text-xs font-medium transition-all ${
+                                              selected
+                                                ? "bg-orange-500 hover:bg-orange-600 text-white border-orange-500 shadow-sm shadow-orange-500/20"
+                                                : "bg-white border-slate-200 text-slate-600 hover:bg-slate-50 hover:text-slate-900"
+                                            }`}
+                                            onClick={() =>
+                                              toggleGroupTerm(
+                                                group.key,
+                                                term.id
+                                              )
+                                            }
+                                          >
+                                            {colorValue && (
+                                              <span
+                                                className={`size-2.5 rounded-full border mr-1.5 transition-transform ${
+                                                  selected ? "border-white/50 scale-110" : "border-slate-200"
+                                                }`}
+                                                style={{
+                                                  backgroundColor: colorValue,
+                                                }}
+                                              />
+                                            )}
+                                            {term.name}
+                                          </Button>
+                                        )
+                                      })
+                                    ) : (
+                                      <span className="text-xs text-muted-foreground">
+                                        Thuoc tinh nay chua co item.
+                                      </span>
+                                    )
+                                  ) : (
+                                    <span className="text-xs text-muted-foreground">
+                                      Chon thuoc tinh de hien item.
+                                    </span>
+                                  )}
+                                </div>
+
+                                {attribute && (
+                                  <div className="flex gap-2 max-w-md">
+                                    <Input
+                                      value={group.newTermName}
+                                      onChange={(event) =>
+                                        updateVariantGroup(group.key, {
+                                          newTermName: event.target.value,
+                                        })
+                                      }
+                                      className="h-8 rounded-xl text-xs"
+                                      placeholder={`Them nhanh gia tri cho ${attribute.name}`}
+                                    />
+                                    <Button
+                                      type="button"
+                                      variant="outline"
+                                      size="sm"
+                                      className="rounded-xl h-8 text-xs px-3"
+                                      disabled={!group.newTermName.trim()}
+                                      onClick={() =>
+                                        createTermForGroup(group.key)
+                                      }
+                                    >
+                                      <IconPlus className="mr-1 size-3" />
+                                      Them
+                                    </Button>
+                                  </div>
+                                )}
                               </div>
                             </div>
                           )
                         })}
                       </div>
 
-                      <div className="mt-4 flex flex-col gap-3 rounded-xl border bg-white p-3 md:flex-row md:items-center md:justify-between">
+                      <div className="mt-4 flex rounded-xl border bg-white p-3">
                         <Button
                           type="button"
                           variant="outline"
                           className="rounded-xl"
                           onClick={addVariantGroup}
                         >
-                          <IconPlus data-icon="inline-start" />
-                          Them bien the khac
+                          <IconPlus className="mr-2 size-4" />
+                          Thêm biến thể khác
                         </Button>
-                        <label className="flex items-center gap-2 text-sm">
-                          <Checkbox
-                            checked={combineVariantGroups}
-                            onCheckedChange={(checked) =>
-                              setCombineVariantGroups(checked === true)
-                            }
-                          />
-                          Ket hop cac bien the thanh ma tran gia
-                        </label>
                       </div>
                     </div>
 
                     <div className="rounded-xl border bg-white">
                       <div className="flex flex-col gap-1 border-b p-4">
                         <div className="flex items-center justify-between gap-3">
-                          <Label>
-                            {combineVariantGroups
-                              ? "To hop bien the va gia"
-                              : "Bien the rieng le va gia"}
-                          </Label>
+                          <Label>Tổ hợp biến thể và giá</Label>
                           <Badge variant="secondary">
-                            {variantDrafts.length} dong
+                            {variantDrafts.length} dòng
                           </Badge>
                         </div>
                         <p className="text-xs text-muted-foreground">
-                          Mac dinh moi item hien thanh mot dong rieng. Bat che
-                          do ket hop de tao ma tran nhieu thuoc tinh.
+                          Hệ thống tự động tổ hợp tất cả các giá trị thuộc tính để tạo ma trận giá biến thể đầy đủ.
                         </p>
                       </div>
 
@@ -3882,10 +3869,11 @@ export default function ProductDetailPage() {
                 name="shortDescription"
                 control={control}
                 render={({ field }) => (
-                  <RichTextEditorWithImageTools
+                  <Textarea
+                    {...field}
                     value={field.value || ""}
-                    onChange={field.onChange}
-                    minHeightClass="[&_.ql-editor]:min-h-[140px]"
+                    placeholder="Nhập mô tả ngắn cho sản phẩm (hiển thị gần giá và nút mua hàng)..."
+                    className="min-h-[120px] resize-y rounded-xl border-orange-100/80 bg-stone-50/30 focus-visible:border-orange-300 focus-visible:ring-orange-100"
                   />
                 )}
               />
@@ -3909,7 +3897,7 @@ export default function ProductDetailPage() {
                   placeholder="chelsea boot, mũi nhọn"
                 />
               </div>
-              <div className="flex flex-col gap-2">
+              <div className="hidden flex flex-col gap-2">
                 <Label htmlFor="seo.metaTitle">Tiêu đề meta</Label>
                 <Input
                   id="seo.metaTitle"
@@ -3917,7 +3905,7 @@ export default function ProductDetailPage() {
                   className="rounded-xl"
                 />
               </div>
-              <div className="flex flex-col gap-2">
+              <div className="hidden flex flex-col gap-2">
                 <Label htmlFor="seo.metaDescription">Mô tả meta</Label>
                 <Textarea
                   id="seo.metaDescription"
@@ -3925,7 +3913,7 @@ export default function ProductDetailPage() {
                   className="min-h-[110px] rounded-xl"
                 />
               </div>
-              <div className="flex flex-col gap-2">
+              <div className="hidden flex flex-col gap-2">
                 <Label htmlFor="seo.canonicalUrl">URL chính tắc</Label>
                 <Input
                   id="seo.canonicalUrl"
@@ -4027,18 +4015,20 @@ export default function ProductDetailPage() {
                 </p>
               </div>
 
-              <div>
-                <Button
-                  type="button"
-                  variant="outline"
-                  className="w-full rounded-xl text-destructive"
-                  onClick={deleteProduct}
-                  disabled={isSaving}
-                >
-                  <IconTrash className="mr-2 size-4" />
-                  Xóa sản phẩm
-                </Button>
-              </div>
+              {!isNew && (
+                <div>
+                  <Button
+                    type="button"
+                    variant="outline"
+                    className="w-full rounded-xl text-destructive hover:bg-destructive/5 hover:text-destructive hover:border-destructive/30"
+                    onClick={deleteProduct}
+                    disabled={isSaving}
+                  >
+                    <IconTrash className="mr-2 size-4" />
+                    Xóa sản phẩm
+                  </Button>
+                </div>
+              )}
             </CardContent>
           </Card>
 
@@ -4047,66 +4037,48 @@ export default function ProductDetailPage() {
               <CardTitle>Ảnh sản phẩm</CardTitle>
             </CardHeader>
             <CardContent className="flex flex-col gap-4">
-              <input
-                ref={featuredImageInputRef}
-                type="file"
-                accept="image/*"
-                className="hidden"
-                onChange={handleFeaturedImageFile}
-              />
-              <button
-                type="button"
-                className="flex min-h-[180px] cursor-pointer flex-col items-center justify-center overflow-hidden rounded-xl border-2 border-dashed border-border text-center transition-colors hover:bg-muted/50"
-                onClick={() => featuredImageInputRef.current?.click()}
-              >
-                {featuredImageSrc ? (
-                  // eslint-disable-next-line @next/next/no-img-element
-                  <img
-                    src={featuredImageSrc}
-                    alt=""
-                    className="size-full max-h-[240px] object-cover"
-                  />
-                ) : (
-                  <span className="flex flex-col items-center p-6">
-                    <span className="mb-2 flex size-12 items-center justify-center rounded-full bg-primary/10">
-                      <IconPhoto className="size-6 text-primary" />
-                    </span>
-                    <span className="text-sm font-medium">
-                      Đặt ảnh đại diện
-                    </span>
-                    <span className="mt-1 text-xs text-muted-foreground">
-                      Tải lên hoặc chọn từ Media
-                    </span>
-                  </span>
-                )}
-              </button>
-              <div className="grid grid-cols-2 gap-2">
-                <Button
+              <div className="relative group">
+                <button
                   type="button"
-                  variant="outline"
-                  className="rounded-xl"
-                  onClick={() => featuredImageInputRef.current?.click()}
-                >
-                  <IconPhoto className="mr-2 size-4" />
-                  Tải lên
-                </Button>
-                <Button
-                  type="button"
-                  variant="outline"
-                  className="rounded-xl"
+                  className="flex w-full min-h-[180px] cursor-pointer flex-col items-center justify-center overflow-hidden rounded-xl border-2 border-dashed border-border text-center transition-all hover:bg-muted/50 hover:border-orange-200"
                   onClick={() => openMediaPicker("featured")}
                 >
-                  <IconLibraryPhoto className="mr-2 size-4" />
-                  Thư viện
-                </Button>
-              </div>
-              <div className="flex flex-col gap-2">
-                <Label htmlFor="featuredImageAlt">Alt text ảnh đại diện</Label>
-                <Input
-                  id="featuredImageAlt"
-                  {...register("featuredImageAlt")}
-                  className="rounded-xl"
-                />
+                  {featuredImageSrc ? (
+                    // eslint-disable-next-line @next/next/no-img-element
+                    <img
+                      src={featuredImageSrc}
+                      alt=""
+                      className="size-full max-h-[240px] object-contain p-2"
+                    />
+                  ) : (
+                    <span className="flex flex-col items-center p-6">
+                      <span className="mb-2 flex size-12 items-center justify-center rounded-full bg-primary/10">
+                        <IconPhoto className="size-6 text-primary" />
+                      </span>
+                      <span className="text-sm font-medium">
+                        Đặt ảnh đại diện
+                      </span>
+                      <span className="mt-1 text-xs text-muted-foreground">
+                        Tải lên hoặc chọn từ Media
+                      </span>
+                    </span>
+                  )}
+                </button>
+
+                {featuredImageSrc && (
+                  <button
+                    type="button"
+                    onClick={(e) => {
+                      e.stopPropagation()
+                      setFeaturedImageSrc("")
+                      setValue("thumbnailMediaId", "", { shouldDirty: true })
+                    }}
+                    className="absolute right-2 top-2 z-10 flex size-8 items-center justify-center rounded-full bg-white/90 shadow-sm text-destructive hover:bg-destructive hover:text-white transition-all opacity-0 group-hover:opacity-100"
+                    title="Xóa ảnh đại diện"
+                  >
+                    <IconTrash className="size-4" />
+                  </button>
+                )}
               </div>
             </CardContent>
           </Card>
@@ -4114,28 +4086,12 @@ export default function ProductDetailPage() {
           <Card className="rounded-[15px] shadow-sm">
             <CardHeader>
               <CardTitle>Gallery sản phẩm</CardTitle>
+              <CardDescription>
+                Tải lên hoặc chọn tối đa 10 hình ảnh chi tiết.
+              </CardDescription>
             </CardHeader>
             <CardContent className="flex flex-col gap-3">
-              <input
-                ref={galleryInputRef}
-                type="file"
-                accept="image/*"
-                multiple
-                className="hidden"
-                onChange={handleGalleryFiles}
-              />
               <div className="flex flex-wrap gap-2">
-                <Button
-                  type="button"
-                  variant="outline"
-                  size="sm"
-                  className="rounded-xl"
-                  onClick={() => openGalleryPicker()}
-                  disabled={galleryImages.length >= gallerySlots.length}
-                >
-                  <IconPlus className="mr-2 size-4" />
-                  Tải ảnh lên
-                </Button>
                 <Button
                   type="button"
                   variant="outline"
@@ -4144,8 +4100,8 @@ export default function ProductDetailPage() {
                   onClick={() => openMediaPicker("gallery")}
                   disabled={galleryImages.length >= gallerySlots.length}
                 >
-                  <IconLibraryPhoto className="mr-2 size-4" />
-                  Chọn từ thư viện
+                  <IconPlus className="mr-2 size-4" />
+                  Thêm ảnh Gallery
                 </Button>
               </div>
               <div className="grid grid-cols-2 gap-3">
@@ -4171,7 +4127,7 @@ export default function ProductDetailPage() {
                           <img
                             src={galleryImages[index]}
                             alt=""
-                            className="size-full object-cover"
+                            className="size-full object-contain p-1.5"
                           />
                         ) : (
                           <IconPhoto className="size-5" />
@@ -4180,7 +4136,7 @@ export default function ProductDetailPage() {
                       </button>
                       {galleryImages[index] ? (
                         <div className="grid grid-cols-4 gap-px border-t bg-border">
-                          <Button
+                           <Button
                             type="button"
                             variant="secondary"
                             size="icon"
@@ -4207,7 +4163,7 @@ export default function ProductDetailPage() {
                             variant="secondary"
                             size="icon"
                             className="h-8 rounded-none bg-white"
-                            onClick={() => openGalleryPicker(index)}
+                            onClick={() => openMediaPicker("gallery-replace", index)}
                             aria-label="Tải ảnh thay thế"
                           >
                             <IconPhoto className="size-4" />
@@ -4231,7 +4187,7 @@ export default function ProductDetailPage() {
                     type="button"
                     aria-label="Thêm ảnh gallery"
                     className="flex aspect-square items-center justify-center rounded-[15px] border border-dashed bg-muted/20 text-muted-foreground transition-colors hover:bg-muted"
-                    onClick={() => openGalleryPicker()}
+                    onClick={() => openMediaPicker("gallery")}
                   >
                     <IconPlus className="size-5" />
                   </button>

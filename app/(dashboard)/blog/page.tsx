@@ -2,6 +2,7 @@
 
 import * as React from "react"
 import Link from "next/link"
+import { useRouter, useSearchParams } from "next/navigation"
 import {
   IconChevronLeft,
   IconChevronRight,
@@ -49,7 +50,7 @@ import { blogService } from "@/lib/api/services/blog.service"
 import type {
   BlogCategory,
   BlogMedia,
-  BlogPost,
+  BlogPostSummary,
 } from "@/lib/api/schemas/blog.schema"
 import { ContentStatus } from "@/lib/api/schemas/enums"
 import type { Pagination } from "@/lib/api/schemas/base.schema"
@@ -91,7 +92,7 @@ type Feedback = {
 
 const initialPagination: Pagination = {
   page: 1,
-  limit: 25,
+  limit: 10,
   total: 0,
   totalPages: 1,
 }
@@ -109,9 +110,9 @@ function formatDate(value?: string | null) {
   }).format(new Date(value))
 }
 
-function getCategoryNames(post: BlogPost) {
-  if (!post.categories.length) return "Chưa phân loại"
-  return post.categories.map((category) => category.name).join(", ")
+function getCategoryNames(post: BlogPostSummary) {
+  if (!post.categories?.length) return "Chưa phân loại"
+  return post.categories.map((category: any) => category.name).join(", ")
 }
 
 function getPageNumbers(pagination: Pagination) {
@@ -132,7 +133,7 @@ function getPageNumbers(pagination: Pagination) {
   return pages
 }
 
-function BlogCover({ post }: { post: BlogPost }) {
+function BlogCover({ post }: { post: BlogPostSummary }) {
   const imageUrl = getMediaUrl(post.coverMedia)
 
   if (!imageUrl) {
@@ -153,19 +154,37 @@ function BlogCover({ post }: { post: BlogPost }) {
 }
 
 export default function BlogPostsPage() {
-  const [posts, setPosts] = React.useState<BlogPost[]>([])
+  const router = useRouter()
+  const searchParams = useSearchParams()
+  const [posts, setPosts] = React.useState<BlogPostSummary[]>([])
   const [categories, setCategories] = React.useState<BlogCategory[]>([])
   const [pagination, setPagination] =
     React.useState<Pagination>(initialPagination)
   const [isLoading, setIsLoading] = React.useState(true)
   const [isDeleting, setIsDeleting] = React.useState(false)
-  const [searchQuery, setSearchQuery] = React.useState("")
-  const [statusFilter, setStatusFilter] = React.useState(ALL_STATUSES)
-  const [categoryFilter, setCategoryFilter] = React.useState(ALL_CATEGORIES)
-  const [sort, setSort] = React.useState<"newest" | "oldest">("newest")
-  const [currentPage, setCurrentPage] = React.useState(1)
+  const [searchQuery, setSearchQuery] = React.useState(searchParams.get("q") || "")
+  const [statusFilter, setStatusFilter] = React.useState(searchParams.get("status") || ALL_STATUSES)
+  const [categoryFilter, setCategoryFilter] = React.useState(searchParams.get("category") || ALL_CATEGORIES)
+  const [sort, setSort] = React.useState<"newest" | "oldest">(
+    (searchParams.get("sort") as "newest" | "oldest") || "newest"
+  )
+  const [currentPage, setCurrentPage] = React.useState(
+    Number(searchParams.get("page")) || 1
+  )
+
+  // Sync URL when page/filters change
+  React.useEffect(() => {
+    const params = new URLSearchParams()
+    if (currentPage > 1) params.set("page", String(currentPage))
+    if (statusFilter !== ALL_STATUSES) params.set("status", statusFilter)
+    if (categoryFilter !== ALL_CATEGORIES) params.set("category", categoryFilter)
+    if (searchQuery.trim()) params.set("q", searchQuery.trim())
+    if (sort !== "newest") params.set("sort", sort)
+    const qs = params.toString()
+    router.replace(`/blog${qs ? `?${qs}` : ""}`, { scroll: false })
+  }, [currentPage, statusFilter, categoryFilter, searchQuery, sort, router])
   const [feedback, setFeedback] = React.useState<Feedback | null>(null)
-  const [postToDelete, setPostToDelete] = React.useState<BlogPost | null>(null)
+  const [postToDelete, setPostToDelete] = React.useState<BlogPostSummary | null>(null)
 
   const fetchPosts = React.useCallback(async () => {
     try {
@@ -412,6 +431,7 @@ export default function BlogPostsPage() {
               <TableHead>Tác giả</TableHead>
               <TableHead>Ngày đăng</TableHead>
               <TableHead>Danh mục</TableHead>
+              <TableHead>SEO</TableHead>
               <TableHead>Cập nhật</TableHead>
               <TableHead>Trạng thái</TableHead>
               <TableHead className="w-20 text-right">Thao tác</TableHead>
@@ -421,7 +441,7 @@ export default function BlogPostsPage() {
             {isLoading ? (
               <TableRow>
                 <TableCell
-                  colSpan={7}
+                  colSpan={9}
                   className="h-40 text-center text-muted-foreground"
                 >
                   <div className="flex items-center justify-center gap-2">
@@ -433,7 +453,7 @@ export default function BlogPostsPage() {
             ) : posts.length === 0 ? (
               <TableRow>
                 <TableCell
-                  colSpan={7}
+                  colSpan={9}
                   className="h-40 text-center text-muted-foreground"
                 >
                   Không tìm thấy bài viết phù hợp.
@@ -474,6 +494,18 @@ export default function BlogPostsPage() {
                       <span className="line-clamp-2 text-sm">
                         {getCategoryNames(post)}
                       </span>
+                    </TableCell>
+                    <TableCell>
+                      {(() => {
+                        const score = post.seo?.seoScore
+                        if (score == null) return <span className="text-xs text-muted-foreground">—</span>
+                        const color = score >= 70 ? "bg-emerald-100 text-emerald-700" : score >= 40 ? "bg-amber-100 text-amber-700" : "bg-red-100 text-red-700"
+                        return (
+                          <Badge variant="secondary" className={cn("border-transparent text-xs font-semibold", color)}>
+                            {score}
+                          </Badge>
+                        )
+                      })()}
                     </TableCell>
                     <TableCell className="text-sm text-muted-foreground">
                       {formatDate(post.updatedAt)}

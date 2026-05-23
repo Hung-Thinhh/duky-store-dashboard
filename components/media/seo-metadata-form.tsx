@@ -23,6 +23,10 @@ interface SeoMetadataFormProps {
   onSave: (data: SeoMetadataPayload) => Promise<void>
   isSaving: boolean
   error?: string | null
+  allowDefaultMetadata?: boolean
+  defaultMetadataText?: string
+  submitLabel?: string
+  onDraftChange?: (data: SeoMetadataPayload) => void
 }
 
 export function SeoMetadataForm({
@@ -33,15 +37,31 @@ export function SeoMetadataForm({
   onSave,
   isSaving,
   error,
+  allowDefaultMetadata = false,
+  defaultMetadataText = "Duky Store",
+  submitLabel = "Lưu thông tin SEO",
+  onDraftChange,
 }: SeoMetadataFormProps) {
   const [altText, setAltText] = React.useState(initialAltText)
   const [title, setTitle] = React.useState(initialTitle)
   const [seoFilename, setSeoFilename] = React.useState(initialFileName)
-  const [isManuallyEdited, setIsManuallyEdited] = React.useState(false)
+  const [isManuallyEdited, setIsManuallyEdited] = React.useState(Boolean(initialFileName))
   const [validationError, setValidationError] = React.useState<string | null>(null)
   const debounceRef = React.useRef<ReturnType<typeof setTimeout> | null>(null)
 
-  // Auto-generate slug from altText or title with debounce (Task 6.2)
+  const resolvePayload = React.useCallback((): SeoMetadataPayload => {
+    const fallbackText = defaultMetadataText.trim() || "Duky Store"
+    const resolvedAltText = altText.trim() || fallbackText
+    const resolvedTitle = title.trim() || fallbackText
+    const fileName = seoFilename || generateSeoFilename(resolvedAltText, originalExtension)
+
+    return {
+      altText: resolvedAltText,
+      title: resolvedTitle,
+      fileName,
+    }
+  }, [altText, defaultMetadataText, originalExtension, seoFilename, title])
+
   React.useEffect(() => {
     if (isManuallyEdited) return
 
@@ -51,12 +71,7 @@ export function SeoMetadataForm({
 
     debounceRef.current = setTimeout(() => {
       const source = altText.trim() || title.trim()
-      if (source) {
-        const generated = generateSeoFilename(source, originalExtension)
-        setSeoFilename(generated)
-      } else {
-        setSeoFilename("")
-      }
+      setSeoFilename(source ? generateSeoFilename(source, originalExtension) : "")
     }, 300)
 
     return () => {
@@ -66,60 +81,52 @@ export function SeoMetadataForm({
     }
   }, [altText, title, originalExtension, isManuallyEdited])
 
-  const handleFilenameChange = (e: React.ChangeEvent<HTMLInputElement>) => {
-    const value = e.target.value
-    setSeoFilename(value)
+  React.useEffect(() => {
+    onDraftChange?.(resolvePayload())
+  }, [onDraftChange, resolvePayload])
 
-    if (value === "") {
-      // Reset manual edit when admin clears filename entirely
-      setIsManuallyEdited(false)
-    } else {
-      setIsManuallyEdited(true)
-    }
+  const handleFilenameChange = (event: React.ChangeEvent<HTMLInputElement>) => {
+    const value = event.target.value
+    setSeoFilename(value)
+    setIsManuallyEdited(value !== "")
   }
 
-  const handleSubmit = async (e: React.FormEvent) => {
-    e.preventDefault()
+  const handleSubmit = async (event: React.FormEvent) => {
+    event.preventDefault()
 
-    if (!altText.trim()) {
+    if (!allowDefaultMetadata && !altText.trim()) {
       setValidationError("Alt text là bắt buộc cho SEO")
       return
     }
 
     setValidationError(null)
-
-    const fileName = seoFilename || generateSeoFilename(altText.trim() || "media", originalExtension)
-
-    await onSave({
-      altText: altText.trim(),
-      title: title.trim(),
-      fileName,
-    })
+    await onSave(resolvePayload())
   }
 
-  // Compute the preview filename
   const previewFilename = seoFilename || `media${originalExtension}`
 
   return (
     <form onSubmit={handleSubmit} className="space-y-4">
       <div className="space-y-2">
         <Label htmlFor="seo-alt-text">
-          Mô tả nội dung ảnh <span className="text-red-500">*</span>
+          Mô tả nội dung ảnh {allowDefaultMetadata ? null : <span className="text-red-500">*</span>}
         </Label>
         <Textarea
           id="seo-alt-text"
           value={altText}
-          onChange={(e) => {
-            setAltText(e.target.value)
+          onChange={(event) => {
+            setAltText(event.target.value)
             if (validationError) setValidationError(null)
           }}
-          placeholder="Mô tả ngắn gọn nội dung ảnh (ví dụ: Áo blazer nữ màu đen)"
+          placeholder="Mô tả ngắn gọn nội dung ảnh"
           maxLength={125}
           className="min-h-16"
         />
         <div className="flex items-center justify-between">
           {validationError ? (
             <p className="text-xs text-red-500">{validationError}</p>
+          ) : allowDefaultMetadata ? (
+            <p className="text-xs text-stone-500">Bỏ trống sẽ tự điền {defaultMetadataText}.</p>
           ) : (
             <span />
           )}
@@ -132,7 +139,7 @@ export function SeoMetadataForm({
         <Input
           id="seo-title"
           value={title}
-          onChange={(e) => setTitle(e.target.value)}
+          onChange={(event) => setTitle(event.target.value)}
           placeholder="Tiêu đề SEO cho ảnh"
           maxLength={200}
         />
@@ -158,18 +165,14 @@ export function SeoMetadataForm({
         <p className="text-sm text-red-500">{error}</p>
       ) : null}
 
-      <Button
-        type="submit"
-        className="w-full rounded-xl"
-        disabled={isSaving}
-      >
+      <Button type="submit" className="w-full rounded-xl" disabled={isSaving}>
         {isSaving ? (
           <>
             <IconLoader2 className="mr-2 size-4 animate-spin" />
             Đang lưu...
           </>
         ) : (
-          "Lưu thông tin SEO"
+          submitLabel
         )}
       </Button>
     </form>

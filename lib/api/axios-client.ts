@@ -23,11 +23,16 @@ export const apiClient = axios.create({
 // Request Interceptor
 apiClient.interceptors.request.use(
   (config: InternalAxiosRequestConfig) => {
-    // Tự động gắn token cho mọi request bắt đầu bằng /admin
-    if (config.url?.startsWith("/admin")) {
+    // Tự động gắn token cho mọi request admin (hỗ trợ cả URL tương đối và tuyệt đối)
+    if (config.url?.startsWith("/admin") || config.url?.includes("/admin/")) {
       const token = getAccessToken()
       if (token) {
-        config.headers.Authorization = `Bearer ${token}`
+        if (config.headers && typeof config.headers.set === "function") {
+          config.headers.set("Authorization", `Bearer ${token}`)
+        } else {
+          config.headers = config.headers || {}
+          config.headers.Authorization = `Bearer ${token}`
+        }
       }
     }
     return config
@@ -82,7 +87,12 @@ apiClient.interceptors.response.use(
           failedQueue.push({ resolve, reject })
         })
           .then((token) => {
-            originalRequest.headers.Authorization = `Bearer ${token}`
+            if (originalRequest.headers && typeof originalRequest.headers.set === "function") {
+              originalRequest.headers.set("Authorization", `Bearer ${token}`)
+            } else {
+              originalRequest.headers = originalRequest.headers || {}
+              originalRequest.headers.Authorization = `Bearer ${token}`
+            }
             return apiClient(originalRequest)
           })
           .catch((err) => Promise.reject(err))
@@ -111,7 +121,13 @@ apiClient.interceptors.response.use(
 
         // Thực hiện lại các request bị lỗi
         processQueue(null, session.accessToken)
-        originalRequest.headers.Authorization = `Bearer ${session.accessToken}`
+        
+        if (originalRequest.headers && typeof originalRequest.headers.set === "function") {
+          originalRequest.headers.set("Authorization", `Bearer ${session.accessToken}`)
+        } else {
+          originalRequest.headers = originalRequest.headers || {}
+          originalRequest.headers.Authorization = `Bearer ${session.accessToken}`
+        }
         return apiClient(originalRequest)
       } catch (refreshError) {
         // Refresh thất bại, bắt buộc đăng xuất

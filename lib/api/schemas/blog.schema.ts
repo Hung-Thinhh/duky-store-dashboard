@@ -101,6 +101,25 @@ export const BlogPostSchema = z.object({
   updatedAt: z.string().optional(),
 })
 
+/** Slim schema for blog list — matches toPostSummary backend response */
+export const BlogPostSummarySchema = z.object({
+  id: z.string(),
+  title: z.string(),
+  slug: z.string(),
+  coverMedia: BlogMediaSchema.optional().nullable(),
+  status: z.nativeEnum(ContentStatus).default("DRAFT"),
+  author: z.object({
+    fullName: z.string().optional().nullable(),
+    email: z.string().optional().nullable(),
+  }).optional().nullable(),
+  publishedAt: z.string().optional().nullable(),
+  updatedAt: z.string().optional(),
+  categories: z.array(z.object({ name: z.string() })).default([]),
+  seo: z.object({
+    seoScore: z.number().optional().nullable(),
+  }).optional().nullable(),
+})
+
 export const CreateBlogCategoryPayloadSchema = z.object({
   name: z.string().min(2, "Tên danh mục là bắt buộc"),
   slug: z.string().optional().nullable(),
@@ -148,7 +167,7 @@ export const BlogCategoryDetailResponseSchema =
   createResponseSchema(BlogCategorySchema)
 
 export const BlogPostListResponseSchema =
-  createPaginatedResponseSchema(BlogPostSchema)
+  createPaginatedResponseSchema(BlogPostSummarySchema)
 export const BlogPostDetailResponseSchema = createResponseSchema(BlogPostSchema)
 export const BlogReusableBlockListResponseSchema =
   createPaginatedResponseSchema(BlogReusableBlockSchema)
@@ -310,6 +329,7 @@ export type BlogCategoryListResponse = z.infer<
   typeof BlogCategoryListResponseSchema
 >
 export type BlogPostListResponse = z.infer<typeof BlogPostListResponseSchema>
+export type BlogPostSummary = z.infer<typeof BlogPostSummarySchema>
 export type BlogAiTask = z.infer<typeof BlogAiTaskSchema>
 export type BlogAiReference = z.infer<typeof BlogAiReferenceSchema>
 export type BlogAiAssistPayload = z.input<typeof BlogAiAssistPayloadSchema>

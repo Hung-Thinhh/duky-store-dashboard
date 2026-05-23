@@ -709,7 +709,7 @@ export default function ProductsPage() {
   }
 
   return (
-    <div className="flex flex-col gap-5 p-6">
+    <div className="flex flex-col gap-5 p-6 w-full min-w-0">
       <div className="flex flex-col gap-4 md:flex-row md:items-center md:justify-between">
         <div>
           <h1 className="text-2xl font-bold tracking-tight">Sản phẩm</h1>
@@ -758,7 +758,7 @@ export default function ProductsPage() {
         </div>
       </div>
 
-      <div className="overflow-hidden rounded-lg border bg-card">
+      <div className="w-full min-w-0 overflow-hidden rounded-lg border bg-card">
         <div className="border-b px-4">
           <div className="flex h-12 items-center">
             <button className="h-full border-b-2 border-primary px-2 text-sm font-semibold text-primary">
@@ -943,7 +943,8 @@ export default function ProductsPage() {
           </div>
         )}
 
-        <Table>
+        <div className="overflow-x-auto">
+          <Table>
           <TableHeader className="bg-muted/50">
             <TableRow className="hover:bg-transparent">
               <TableHead className="w-10 px-3" />
@@ -1052,7 +1053,7 @@ export default function ProductsPage() {
                           </Link>
                           <div className="flex flex-wrap items-center gap-1.5">
                             {product.sku && (
-                              <span className="font-mono text-xs text-muted-foreground">
+                              <span className="font-mono text-xs text-muted-foreground truncate max-w-[240px] block" title={product.sku}>
                                 {product.sku}
                               </span>
                             )}
@@ -1258,6 +1259,7 @@ export default function ProductsPage() {
             )}
           </TableBody>
         </Table>
+        </div>
       </div>
 
       {pagination.totalPages > 1 && (
