@@ -21,6 +21,16 @@ export function containsKeyword(text: string, keyword: string): boolean {
   return normalizedText.includes(normalizedKeyword)
 }
 
+function getSecondaryKeywords(input: SeoInput): string[] {
+  return (input.secondaryKeywords ?? [])
+    .map((keyword) => keyword.trim())
+    .filter(Boolean)
+}
+
+function countMatchedKeywords(text: string, keywords: string[]): number {
+  return keywords.filter((keyword) => containsKeyword(text, keyword)).length
+}
+
 /**
  * Count non-overlapping occurrences of keyword in text (case-insensitive).
  */
@@ -236,6 +246,43 @@ export function checkInternalLinks(input: SeoInput): SeoCheckResult {
   }
 }
 
+export function checkSecondaryKeywordsInContent(input: SeoInput): SeoCheckResult {
+  const keywords = getSecondaryKeywords(input)
+  const text = extractTextContent(input.htmlContent)
+  const matchedCount = countMatchedKeywords(text, keywords)
+  const targetCount = Math.min(2, keywords.length)
+
+  return {
+    id: 'secondary-keywords-in-content',
+    label: 'Tu khoa phu xuat hien tu nhien trong noi dung',
+    passed: keywords.length === 0 || matchedCount >= targetCount,
+    category: 'additional',
+    description:
+      keywords.length === 0
+        ? 'Chua co tu khoa phu. Khong tru diem SEO.'
+        : `Da bao phu ${matchedCount}/${keywords.length} tu khoa phu. Nen co it nhat ${targetCount} tu khoa phu trong noi dung.`,
+  }
+}
+
+export function checkSecondaryKeywordsInSubheadings(input: SeoInput): SeoCheckResult {
+  const keywords = getSecondaryKeywords(input)
+  const headingsText = extractHeadings(input.htmlContent)
+    .map((heading) => heading.text)
+    .join(' ')
+  const matchedCount = countMatchedKeywords(headingsText, keywords)
+
+  return {
+    id: 'secondary-keywords-in-subheadings',
+    label: 'Tu khoa phu ho tro H2/H3',
+    passed: keywords.length === 0 || matchedCount > 0,
+    category: 'additional',
+    description:
+      keywords.length === 0
+        ? 'Chua co tu khoa phu. Khong tru diem SEO.'
+        : `Da co ${matchedCount}/${keywords.length} tu khoa phu trong heading. Day la diem cong nhe, khong bat buoc.`,
+  }
+}
+
 /**
  * Check: Focus keyword appears in the first 50% of the title.
  */
@@ -400,6 +447,8 @@ export function runAllChecks(input: SeoInput): SeoCheckResult[] {
     checkKeywordInSubheadings(input),
     checkKeywordInImageAlt(input),
     checkKeywordDensity(input),
+    checkSecondaryKeywordsInContent(input),
+    checkSecondaryKeywordsInSubheadings(input),
     checkUrlLength(input),
     checkExternalLinks(input),
     checkInternalLinks(input),

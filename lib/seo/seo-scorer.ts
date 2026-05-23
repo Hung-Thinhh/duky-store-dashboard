@@ -23,6 +23,13 @@ const CATEGORY_WEIGHTS: Record<SeoCategory, number> = {
   contentReadability: 1.25,
 }
 
+const SOFT_BONUS_CHECK_IDS = new Set([
+  'secondary-keywords-in-content',
+  'secondary-keywords-in-subheadings',
+])
+
+const SOFT_BONUS_POINTS = 2
+
 /**
  * Calculate the total SEO score from check results.
  * Each check earns its category weight if passed.
@@ -36,6 +43,10 @@ export function calculateSeoScore(input: SeoInput): SeoScoreResult {
   let totalPoints = 0
 
   for (const check of checks) {
+    if (SOFT_BONUS_CHECK_IDS.has(check.id)) {
+      continue
+    }
+
     const weight = CATEGORY_WEIGHTS[check.category]
     totalPoints += weight
     if (check.passed) {
@@ -44,7 +55,11 @@ export function calculateSeoScore(input: SeoInput): SeoScoreResult {
   }
 
   // Normalize to 0-100
-  const score = totalPoints === 0 ? 0 : Math.round((earnedPoints / totalPoints) * 100)
+  const baseScore = totalPoints === 0 ? 0 : Math.round((earnedPoints / totalPoints) * 100)
+  const softBonus = checks
+    .filter((check) => SOFT_BONUS_CHECK_IDS.has(check.id) && check.passed)
+    .reduce((total) => total + SOFT_BONUS_POINTS, 0)
+  const score = Math.min(100, baseScore + softBonus)
   const color = getScoreColor(score)
 
   // Build category summary

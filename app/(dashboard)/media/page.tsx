@@ -5,6 +5,7 @@ import { IconCopy, IconFile, IconSearch, IconTrash, IconUpload } from "@tabler/i
 
 import { Button } from "@/components/ui/button"
 import { Card } from "@/components/ui/card"
+import { MediaUploadDialog } from "@/components/media/media-upload-dialog"
 import { ConfirmDialog } from "@/components/ui/confirm-dialog"
 import { InlineFeedback } from "@/components/ui/inline-feedback"
 import { Input } from "@/components/ui/input"
@@ -15,7 +16,7 @@ export default function MediaPage() {
   const [mediaList, setMediaList] = React.useState<Media[]>([])
   const [isLoading, setIsLoading] = React.useState(true)
   const [searchQuery, setSearchQuery] = React.useState("")
-  const [isUploading, setIsUploading] = React.useState(false)
+  const [isUploadDialogOpen, setIsUploadDialogOpen] = React.useState(false)
   const [deleteTarget, setDeleteTarget] = React.useState<Media | null>(null)
   const [isDeleting, setIsDeleting] = React.useState(false)
   const [feedback, setFeedback] = React.useState<{ message: string; tone: "success" | "error" | "info" } | null>(null)
@@ -35,26 +36,12 @@ export default function MediaPage() {
   }, [])
 
   React.useEffect(() => {
-    fetchMedia()
+    void Promise.resolve().then(fetchMedia)
   }, [fetchMedia])
 
-  const handleUpload = async (event: React.ChangeEvent<HTMLInputElement>) => {
-    if (!event.target.files?.length) return
-
-    try {
-      setIsUploading(true)
-      setFeedback(null)
-      const files = Array.from(event.target.files)
-      await mediaService.uploadMultipleMedia(files)
-      await fetchMedia()
-      setFeedback({ message: `Đã tải lên ${files.length} file.`, tone: "success" })
-    } catch (error) {
-      console.error("Failed to upload media", error)
-      setFeedback({ message: "Tải file thất bại. Vui lòng kiểm tra định dạng ảnh và thử lại.", tone: "error" })
-    } finally {
-      setIsUploading(false)
-      event.target.value = ""
-    }
+  const handleUploaded = async () => {
+    await fetchMedia()
+    setFeedback({ message: "Đã lưu ảnh cùng metadata vào thư viện.", tone: "success" })
   }
 
   const copyToClipboard = async (text: string) => {
@@ -100,12 +87,9 @@ export default function MediaPage() {
           <h1 className="text-2xl font-bold tracking-tight">Thư viện Media</h1>
           <p className="mt-1 text-sm text-muted-foreground">Quản lý hình ảnh và tệp tin.</p>
         </div>
-        <Button asChild className="cursor-pointer rounded-xl" disabled={isUploading}>
-          <label>
-            <IconUpload className="mr-2 size-4" />
-            {isUploading ? "Đang tải..." : "Tải lên"}
-            <input type="file" multiple accept="image/*" className="hidden" onChange={handleUpload} disabled={isUploading} />
-          </label>
+        <Button type="button" className="rounded-xl" onClick={() => setIsUploadDialogOpen(true)}>
+          <IconUpload className="mr-2 size-4" />
+          Tải lên
         </Button>
       </div>
 
@@ -134,7 +118,7 @@ export default function MediaPage() {
               <div className="relative flex aspect-square items-center justify-center overflow-hidden bg-muted">
                 {media.mimeType.startsWith("image/") ? (
                   // eslint-disable-next-line @next/next/no-img-element
-                  <img src={media.url} alt={media.filename} className="h-full w-full object-cover transition-transform duration-300 group-hover:scale-105" />
+                  <img src={media.url} alt={media.altText || media.filename} className="h-full w-full object-cover transition-transform duration-300 group-hover:scale-105" />
                 ) : (
                   <IconFile className="size-12 text-muted-foreground" />
                 )}
@@ -169,6 +153,11 @@ export default function MediaPage() {
         isLoading={isDeleting}
         onOpenChange={(open) => !open && setDeleteTarget(null)}
         onConfirm={handleDelete}
+      />
+      <MediaUploadDialog
+        open={isUploadDialogOpen}
+        onOpenChange={setIsUploadDialogOpen}
+        onUploaded={handleUploaded}
       />
     </div>
   )

@@ -2,15 +2,23 @@ import { apiClient } from "../axios-client";
 import { MediaDetailResponseSchema, MediaListResponseSchema, MediaSchema } from "../schemas/media.schema";
 
 export const mediaService = {
-  async getMediaList(params?: Record<string, any>) {
+  async getMediaList(params?: Record<string, string | number | boolean | undefined>) {
     // Assuming a GET endpoint exists even though not explicitly in contract
     const response = await apiClient.get("/admin/media", { params });
     return MediaListResponseSchema.parse(response).DT;
   },
 
-  async uploadMedia(file: File) {
+  async getMedia(id: string) {
+    const response = await apiClient.get(`/admin/media/${id}`);
+    return MediaDetailResponseSchema.parse(response).DT;
+  },
+
+  async uploadMedia(file: File, metadata?: { altText?: string; title?: string; fileName?: string }) {
     const formData = new FormData();
     formData.append("file", file);
+    if (metadata?.altText) formData.append("altText", metadata.altText);
+    if (metadata?.title) formData.append("title", metadata.title);
+    if (metadata?.fileName) formData.append("fileName", metadata.fileName);
 
     const response = await apiClient.post("/admin/media/upload", formData, {
       headers: {
@@ -31,7 +39,7 @@ export const mediaService = {
         "Content-Type": "multipart/form-data",
       },
     });
-    return MediaSchema.array().parse((response as any).DT);
+    return MediaSchema.array().parse(response.DT);
   },
 
   async createExternalMedia(data: {

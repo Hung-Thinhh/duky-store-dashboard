@@ -27,6 +27,7 @@ export function useSeoAnalysis(input: SeoInput | null): SeoScoreResult | null {
     return () => clearTimeout(timer)
   }, [
     input?.focusKeyword,
+    input?.secondaryKeywords?.join("|"),
     input?.seoTitle,
     input?.metaDescription,
     input?.slug,

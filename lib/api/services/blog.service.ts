@@ -1,6 +1,10 @@
 import { apiClient } from "../axios-client";
 import {
   BlogCategoryDetailResponseSchema,
+  BlogAiAssistPayload,
+  BlogAiAssistResponseSchema,
+  BlogAiBlockAssistPayload,
+  BlogAiBlockAssistResponseSchema,
   BlogCategoryListResponseSchema,
   BlogPostDetailResponseSchema,
   BlogPostListResponseSchema,
@@ -39,6 +43,20 @@ export const blogService = {
   async deleteCategory(id: string) {
     const response = await apiClient.delete(`/admin/blog-categories/${id}`);
     return response;
+  },
+
+  async assistWithAi(data: BlogAiAssistPayload) {
+    const response = await apiClient.post("/admin/blog-ai/assist", data, {
+      timeout: 120000,
+    });
+    return BlogAiAssistResponseSchema.parse(response).DT;
+  },
+
+  async assistBlockWithAi(data: BlogAiBlockAssistPayload) {
+    const response = await apiClient.post("/admin/blog-ai/block-assist", data, {
+      timeout: 60000,
+    });
+    return BlogAiBlockAssistResponseSchema.parse(response).DT;
   },
 
   // Posts

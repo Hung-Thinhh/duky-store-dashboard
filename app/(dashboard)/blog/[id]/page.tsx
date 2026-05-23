@@ -79,6 +79,8 @@ import {
   IconTextSpellcheck,
   IconTextWrap,
   IconTrash,
+  IconX,
+  IconWand,
   IconArrowUp,
   IconArrowDown,
   IconArrowBackUp,
@@ -121,12 +123,16 @@ import { Textarea } from "@/components/ui/textarea"
 import {
   CreateBlogPostPayload,
   CreateBlogPostPayloadSchema,
+  type BlogAiAssistResult,
+  type BlogAiBlockAssistResult,
+  type BlogAiTask,
   type BlogCategory,
   type BlogReusableBlock,
   type BlogReusableBlockType,
   type BlogPost,
 } from "@/lib/api/schemas/blog.schema"
-import { ContentStatus, TagType } from "@/lib/api/schemas/enums"
+import { ContentStatus, type ContentStatusType, TagType } from "@/lib/api/schemas/enums"
+import type { Media } from "@/lib/api/schemas/media.schema"
 import type { Tag } from "@/lib/api/schemas/tag.schema"
 import { blogService } from "@/lib/api/services/blog.service"
 import { mediaService } from "@/lib/api/services/media.service"
@@ -134,6 +140,33 @@ import { tagService } from "@/lib/api/services/tag.service"
 import { cn } from "@/lib/utils"
 
 const NO_CATEGORY = "NO_CATEGORY"
+const STOREFRONT_URL = (
+  process.env.NEXT_PUBLIC_STOREFRONT_URL ||
+  process.env.NEXT_PUBLIC_SITE_URL ||
+  "https://dukystore.com"
+).replace(/\/+$/g, "")
+
+function storefrontPath(path: string) {
+  return `${STOREFRONT_URL}${path.startsWith("/") ? path : `/${path}`}`
+}
+
+const BLOG_AI_TASK_LABELS: Record<BlogAiTask, string> = {
+  FULL_DRAFT: "Tạo nháp đầy đủ",
+  SEO: "Tối ưu SEO",
+  OUTLINE: "Lên dàn ý",
+  OPTIMIZE: "Tối ưu bài hiện tại",
+  INTERNAL_LINKS: "Gợi ý internal link",
+  IMAGE_ALT: "Alt ảnh & caption",
+}
+
+const BLOG_AI_TASK_HINTS: Record<BlogAiTask, string> = {
+  FULL_DRAFT: "Tạo tiêu đề, mô tả, nội dung HTML, FAQ, SEO và link gợi ý.",
+  SEO: "Sửa các lỗi điểm SEO: keyword, link, ảnh, độ dài và readability.",
+  OUTLINE: "Tạo cấu trúc H2/H3 để viết bài nhanh hơn.",
+  OPTIMIZE: "Rewrite sâu hơn để bài mượt, dễ đọc và bán hàng tốt hơn.",
+  INTERNAL_LINKS: "Gợi ý link sang sản phẩm hoặc bài viết liên quan.",
+  IMAGE_ALT: "Gợi ý alt/caption cho ảnh trong bài và ảnh đại diện.",
+}
 
 declare module "@tiptap/core" {
   interface Commands<ReturnType> {
@@ -456,6 +489,17 @@ const DEFAULT_NEW_BLOG_MOCK_FOOTER_CONTENT = `<div style="margin-top:20px; borde
   <div style="margin-top:12px; padding-top:10px; border-top:1px dashed #d6d3d1; color:#6b7280; font-size:13px;">Cảm ơn bạn đã theo dõi bài viết. Liên hệ ngay để được tư vấn nhanh và nhận ưu đãi mới nhất.</div>
 </div>`
 
+const EMPTY_NEW_BLOG_TITLE = ""
+
+function escapeHtml(value: string) {
+  return value
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;")
+    .replace(/'/g, "&#39;")
+}
+
 function slugify(value: string) {
   return value
     .normalize("NFD")
@@ -467,9 +511,90 @@ function slugify(value: string) {
     .replace(/^-+|-+$/g, "")
 }
 
+function uniqueSlug(baseSlug: string, suffix: string) {
+  const cleanBase = slugify(baseSlug) || "bai-viet"
+  const cleanSuffix = slugify(suffix).slice(0, 8) || Date.now().toString(36)
+  return `${cleanBase}-${cleanSuffix}`
+}
+
 function emptyToNull(value?: string | null) {
   const trimmed = value?.trim()
   return trimmed ? trimmed : null
+}
+
+function normalizeKeywordList(value: string) {
+  return value
+    .split(/[,;\n]+/g)
+    .map((keyword) => keyword.trim())
+    .filter(Boolean)
+    .filter((keyword, index, keywords) =>
+      keywords.findIndex((item) => item.toLowerCase() === keyword.toLowerCase()) === index
+    )
+    .join(", ")
+}
+
+function normalizeKeywordForCompare(value?: string | null) {
+  return (value ?? "")
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .toLowerCase()
+    .replace(/[^a-z0-9\s]+/g, " ")
+    .replace(/\s+/g, " ")
+    .trim()
+}
+
+function getPrimaryKeywordWarning(keyword: string | undefined, title: string | undefined) {
+  const primaryKeyword = keyword?.trim()
+  if (!primaryKeyword) return null
+
+  const wordCount = primaryKeyword.split(/\s+/).filter(Boolean).length
+  const normalizedKeyword = normalizeKeywordForCompare(primaryKeyword)
+  const normalizedTitle = normalizeKeywordForCompare(title)
+
+  if (normalizedTitle && normalizedKeyword === normalizedTitle) {
+    return "Từ khóa chính đang giống tiêu đề. Nên rút còn cụm search ngắn hơn, ví dụ 3-5 từ."
+  }
+
+  if (wordCount > 6) {
+    return "Từ khóa chính hơi dài. Nên dùng 2-6 từ, còn phần mở rộng đưa xuống từ khóa phụ."
+  }
+
+  if (/[.!?:|]/.test(primaryKeyword)) {
+    return "Từ khóa chính không nên có dấu câu như tiêu đề. Hãy dùng cụm search tự nhiên hơn."
+  }
+
+  return null
+}
+
+function isSlugConflictError(error: unknown) {
+  if (!error || typeof error !== "object") return false
+
+  const maybeError = error as {
+    EC?: number
+    EM?: string
+    DT?: {
+      code?: string
+      details?: unknown
+    }
+  }
+
+  return (
+    maybeError.EC === 409 ||
+    maybeError.DT?.code === "409_CONFLICT" ||
+    maybeError.EM?.toLowerCase().includes("slug") === true
+  )
+}
+
+function createDraftUuid() {
+  if (typeof crypto !== "undefined" && "randomUUID" in crypto) {
+    return crypto.randomUUID()
+  }
+
+  return `${Date.now()}-${Math.random().toString(16).slice(2)}`
+}
+
+function isDefaultNewBlogTitle(title?: string | null) {
+  return !title?.trim() || title.trim() === DEFAULT_NEW_BLOG_MOCK_TITLE
 }
 
 function minifyHtmlForStorage(html: string) {
@@ -575,6 +700,332 @@ function stripLegacyBlockLabel(html: string) {
     .trim()
 }
 
+function getMainTitle(title?: string | null) {
+  return title?.trim() || "Tiêu đề bài viết"
+}
+
+function createTitleBlock(title?: string | null) {
+  return wrapHtmlAsBlock(`<h1>${escapeHtml(getMainTitle(title))}</h1>`, "title")
+}
+
+function isTitleBlockHtml(block: string) {
+  const normalized = block.trim().toLowerCase()
+  return (
+    normalized.includes('data-duky-block-type="title"') ||
+    unwrapBlockHtml(block).trim().toLowerCase().startsWith("<h1")
+  )
+}
+
+function ensureTitleBlockContent(content: string | null | undefined, title?: string | null) {
+  const blocks = splitContentToBlocks(content)
+  const titleBlock = createTitleBlock(title)
+  const bodyBlocks = blocks
+    .filter((block, index) => !(index === 0 && isTitleBlockHtml(block)))
+    .map((block) => {
+      const unwrapped = unwrapBlockHtml(block).trim()
+      const withoutLeadingH1 = stripLeadingH1(unwrapped).content
+      if (!withoutLeadingH1) return ""
+      return isBlockWrapperHtml(block)
+        ? wrapHtmlAsBlock(withoutLeadingH1, inferBlockTypeFromHtml(withoutLeadingH1))
+        : withoutLeadingH1
+    })
+    .filter(Boolean)
+
+  return mergeBlocksToContent([titleBlock, ...bodyBlocks])
+}
+
+function stripLeadingH1(html: string) {
+  let title: string | null = null
+  const content = html.replace(/^\s*<h1\b[^>]*>([\s\S]*?)<\/h1>\s*/i, (_match, heading) => {
+    title = String(heading)
+      .replace(/<[^>]+>/g, " ")
+      .replace(/\s+/g, " ")
+      .trim()
+    return ""
+  })
+
+  return { title, content: content.trim() }
+}
+
+function splitHtmlIntoContentBlocks(html: string) {
+  const raw = html.trim()
+  if (!raw) return []
+  const withoutTopH1 = stripLeadingH1(raw).content
+  if (!withoutTopH1) return []
+
+  const parts = withoutTopH1
+    .replace(/(<h2\b[^>]*>)/gi, `${CONTENT_BLOCK_SEPARATOR}$1`)
+    .split(CONTENT_BLOCK_SEPARATOR)
+    .map((part) => part.trim())
+    .filter(Boolean)
+
+  return parts.map((part) => wrapHtmlAsBlock(part, inferBlockTypeFromHtml(part) === "footer" ? "footer" : "content"))
+}
+
+function cleanAiContentHtml(html: string, options?: { dropTitleBlocks?: boolean }) {
+  const rawBlocks = splitContentToBlocks(html)
+  const unwrappedBlocks = (rawBlocks.length ? rawBlocks : [html])
+    .map((block) => {
+      const flattened = flattenNestedBlockWrappers(block)
+      const unwrapped = unwrapBlockHtml(flattened)
+      return stripLeadingH1(unwrapped).content
+    })
+    .filter((block) => block && !(options?.dropTitleBlocks && isTitleBlockHtml(block)))
+
+  return unwrappedBlocks.join(`\n${CONTENT_BLOCK_SEPARATOR}\n`).trim()
+}
+
+function parseOutlineHeading(item: string) {
+  const withoutTags = item.replace(/<[^>]+>/g, " ")
+  const withoutListMarker = withoutTags
+    .replace(/^\s*(?:[-*•]\s*)+/, "")
+    .replace(/^\s*\d+[\s.)-]+/, "")
+    .trim()
+  const headingMatch = withoutListMarker.match(/^h([1-6])\s*[:.)-]\s*/i)
+  const level = headingMatch ? Number(headingMatch[1]) : 2
+  const text = (headingMatch
+    ? withoutListMarker.slice(headingMatch[0].length)
+    : withoutListMarker
+  )
+    .replace(/\s+/g, " ")
+    .trim()
+
+  return {
+    level,
+    text,
+  }
+}
+
+function getOutlineDisplayText(item: string) {
+  return parseOutlineHeading(item).text || item.trim()
+}
+
+function splitOutlineIntoContentBlocks(outline: string[]) {
+  const blocks: string[] = []
+  let currentBlockParts: string[] = []
+
+  const flushBlock = () => {
+    if (!currentBlockParts.length) return
+    blocks.push(wrapHtmlAsBlock(currentBlockParts.join(""), "content"))
+    currentBlockParts = []
+  }
+
+  outline.forEach((item) => {
+    const { level, text } = parseOutlineHeading(item)
+    if (!text || /^dàn\s*ý$/i.test(text)) return
+
+    if (level <= 2) {
+      flushBlock()
+      currentBlockParts.push(`<h2>${escapeHtml(text)}</h2>`)
+      return
+    }
+
+    if (!currentBlockParts.length) {
+      currentBlockParts.push(`<h2>${escapeHtml(text)}</h2>`)
+      return
+    }
+
+    currentBlockParts.push(`<h3>${escapeHtml(text)}</h3>`)
+  })
+
+  flushBlock()
+
+  return blocks
+}
+
+type AiInlineImageSelection = NonNullable<
+  NonNullable<BlogAiAssistResult["selectedMedia"]>["inlineImages"]
+>[number]
+
+function getMediaAssetUrl(media?: Pick<Media, "url" | "secureUrl"> | null) {
+  return media?.secureUrl || media?.url || ""
+}
+
+function getAiSelectedMediaIds(result: BlogAiAssistResult | null) {
+  const selectedMedia = result?.selectedMedia
+  if (!selectedMedia) return []
+
+  return Array.from(
+    new Set([
+      selectedMedia.coverMediaId,
+      selectedMedia.ogImageMediaId,
+      ...(selectedMedia.inlineImages ?? []).map((image) => image.mediaId),
+    ].filter(Boolean) as string[])
+  )
+}
+
+async function fetchAiSelectedMedia(result: BlogAiAssistResult | null) {
+  const ids = getAiSelectedMediaIds(result)
+  if (!ids.length) return []
+
+  const media = await Promise.all(
+    ids.map((id) =>
+      mediaService.getMedia(id).catch(() => null)
+    )
+  )
+
+  return media.filter(Boolean) as Media[]
+}
+
+function createAiImageHtml(media: Media, selection: AiInlineImageSelection) {
+  const url = getMediaAssetUrl(media)
+  if (!url) return ""
+
+  const alt = selection.alt || media.altText || media.title || media.filename || "Ảnh minh họa"
+  const caption = selection.caption || media.title || media.altText || ""
+
+  return [
+    `<figure data-width="75%" data-align="center" data-caption="${escapeHtml(caption)}" style="float:none;margin:28px auto;width:75%;max-width:100%;display:block;text-align:center;">`,
+    `<img src="${escapeHtml(url)}" alt="${escapeHtml(alt)}" title="${escapeHtml(media.title || alt)}" data-width="75%" data-align="center" data-caption="${escapeHtml(caption)}" style="display:block;width:100%;height:auto;margin:0;border-radius:24px;" />`,
+    caption
+      ? `<figcaption class="duky-blog-image-caption" style="margin-top:10px;text-align:center;font-size:14px;line-height:1.6;color:#6b7280;font-style:italic;">${escapeHtml(caption)}</figcaption>`
+      : "",
+    "</figure>",
+  ].join("")
+}
+
+function insertAiSelectedImagesIntoHtml(
+  html: string,
+  selectedMedia: BlogAiAssistResult["selectedMedia"],
+  mediaById: Map<string, Media>
+) {
+  const inlineImages = selectedMedia?.inlineImages ?? []
+  if (!html.trim() || !inlineImages.length) return html
+
+  let nextHtml = html
+
+  inlineImages.slice(0, 3).forEach((selection) => {
+    const media = mediaById.get(selection.mediaId)
+    const imageHtml = media ? createAiImageHtml(media, selection) : ""
+    if (!imageHtml || nextHtml.includes(getMediaAssetUrl(media))) return
+
+    const afterHeading = selection.afterHeading?.trim()
+    if (afterHeading) {
+      const escapedHeading = afterHeading.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")
+      const headingPattern = new RegExp(`(<h[23]\\b[^>]*>[^<]*${escapedHeading}[^<]*<\\/h[23]>)`, "i")
+      if (headingPattern.test(nextHtml)) {
+        nextHtml = nextHtml.replace(headingPattern, `$1${imageHtml}`)
+        return
+      }
+    }
+
+    const firstH2Pattern = /(<h2\b[^>]*>[\s\S]*?<\/h2>)/i
+    if (firstH2Pattern.test(nextHtml)) {
+      nextHtml = nextHtml.replace(firstH2Pattern, `$1${imageHtml}`)
+      return
+    }
+
+    nextHtml = `${nextHtml}${imageHtml}`
+  })
+
+  return nextHtml
+}
+
+function buildSeoAnalysisForAi(seoResult: ReturnType<typeof useSeoAnalysis>) {
+  if (!seoResult) return null
+
+  const failedChecks = seoResult.checks
+    .filter((check) => !check.passed)
+    .map((check) => ({
+      id: check.id,
+      label: check.label,
+      category: check.category,
+      description: check.description,
+    }))
+
+  return {
+    score: seoResult.score,
+    targetScore: 82,
+    failedChecks,
+    scoringNotes: [
+      "Basic SEO moi check khoang 10 diem: keyword trong title, meta description, slug, intro, content, va noi dung >= 600 tu.",
+      "Additional SEO moi check khoang 5 diem: keyword trong H2/H3, alt anh, density 1-2.5%, slug ngan, external link, internal link.",
+      "Title/readability va content/readability la diem cong nho: title co keyword o nua dau, co so, doan ngan, co media, cau ngan va khong lap cach mo dau.",
+      "Neu score duoi 80, uu tien sua failedChecks trong noi dung/anh/link. Metadata do FE tu sinh.",
+    ],
+  }
+}
+
+function normalizePlainText(value?: string | null) {
+  return (value ?? "")
+    .replace(/<[^>]+>/g, " ")
+    .replace(/&nbsp;/gi, " ")
+    .replace(/&amp;/gi, "&")
+    .replace(/&lt;/gi, "<")
+    .replace(/&gt;/gi, ">")
+    .replace(/&quot;/gi, "\"")
+    .replace(/&#39;/gi, "'")
+    .replace(/\s+/g, " ")
+    .trim()
+}
+
+function truncateSeoText(value: string, maxLength: number) {
+  const clean = normalizePlainText(value)
+  if (clean.length <= maxLength) return clean
+
+  const sliced = clean.slice(0, maxLength + 1)
+  const sentenceCut = Math.max(
+    sliced.lastIndexOf("."),
+    sliced.lastIndexOf("!"),
+    sliced.lastIndexOf("?")
+  )
+  const wordCut = sliced.lastIndexOf(" ")
+  const cutAt = sentenceCut >= Math.floor(maxLength * 0.55)
+    ? sentenceCut + 1
+    : wordCut >= Math.floor(maxLength * 0.7)
+      ? wordCut
+      : maxLength
+
+  return clean.slice(0, cutAt).trim().replace(/[,\-:;]+$/g, "")
+}
+
+function buildAutoSeoFields(input: {
+  title?: string | null
+  excerpt?: string | null
+  content?: string | null
+  slug: string
+  focusKeyword: string
+}) {
+  const title = normalizePlainText(input.title)
+  const focusKeyword = normalizePlainText(input.focusKeyword.split(",")[0])
+  const contentText = normalizePlainText(stripBlockWrappersForHtml(input.content))
+  const excerpt = normalizePlainText(input.excerpt) || truncateSeoText(contentText, 155)
+  const titleWithKeyword =
+    focusKeyword && title && !title.toLowerCase().includes(focusKeyword.toLowerCase())
+      ? `${focusKeyword}: ${title}`
+      : title || focusKeyword
+  const metaTitle = truncateSeoText(titleWithKeyword, 60)
+  const metaDescription = truncateSeoText(
+    excerpt || `${metaTitle} - Gợi ý chọn mua và phối đồ tại Duky Store.`,
+    160
+  )
+
+  return {
+    metaTitle,
+    metaDescription,
+    ogTitle: metaTitle,
+    ogDescription: metaDescription,
+    twitterTitle: metaTitle,
+    twitterDescription: metaDescription,
+    canonicalUrl: input.slug ? storefrontPath(`/blog/${input.slug}`) : "",
+  }
+}
+
+function composeAiContentBlocks(contentHtml: string, title?: string | null) {
+  const stripped = stripLeadingH1(cleanAiContentHtml(contentHtml))
+  const mainTitle = stripped.title || title
+  const bodyBlocks = splitHtmlIntoContentBlocks(stripped.content)
+  return mergeBlocksToContent([createTitleBlock(mainTitle), ...bodyBlocks])
+}
+
+function composeAiSeoContentBlocks(contentHtml: string) {
+  return mergeBlocksToContent(
+    splitHtmlIntoContentBlocks(
+      cleanAiContentHtml(contentHtml, { dropTitleBlocks: true })
+    )
+  )
+}
+
 function getTopLevelNodeInfo(props: NodeViewProps) {
   if (typeof props.getPos !== "function") return null
 
@@ -597,6 +1048,10 @@ function moveBlockNode(props: NodeViewProps, direction: "up" | "down") {
   if (!info) return
 
   const { currentIndex, pos, siblings } = info
+  const type = blockTypeFromNodeAttrs(props.node.attrs)
+  if (type === "title" && currentIndex === 0) return
+  if (direction === "up" && currentIndex <= 1 && isTitleBlockHtml(props.node.toString?.() ?? "")) return
+  if (direction === "up" && currentIndex <= 1) return
   const targetIndex = direction === "up" ? currentIndex - 1 : currentIndex + 1
   const target = siblings[targetIndex]
   if (!target) return
@@ -626,7 +1081,9 @@ function moveTopLevelNodeByIndex(editor: Editor, fromIndex: number, toIndex: num
     toIndex < 0 ||
     fromIndex >= siblings.length ||
     toIndex >= siblings.length ||
-    fromIndex === toIndex
+    fromIndex === toIndex ||
+    fromIndex === 0 ||
+    toIndex === 0
   ) {
     return
   }
@@ -649,13 +1106,23 @@ function moveTopLevelNodeByIndex(editor: Editor, fromIndex: number, toIndex: num
 function removeBlockNode(props: NodeViewProps) {
   if (typeof props.getPos !== "function") return
 
+  const info = getTopLevelNodeInfo(props)
+  const type = blockTypeFromNodeAttrs(props.node.attrs)
+  if (type === "title" && info?.currentIndex === 0) return
+
+  const blockquoteStorage = (props.editor.storage as unknown as Record<string, unknown>)
+    .blockquote as BlogBlockquoteStorage | undefined
+  if (info && blockquoteStorage?.onRemoveBlock) {
+    blockquoteStorage.onRemoveBlock(info.currentIndex)
+    return
+  }
+
   const pos = props.getPos()
   if (typeof pos !== "number") return
-  props.editor
-    .chain()
-    .focus()
-    .deleteRange({ from: pos, to: pos + props.node.nodeSize })
-    .run()
+
+  const transaction = props.editor.state.tr.delete(pos, pos + props.node.nodeSize)
+  props.editor.view.dispatch(transaction)
+  props.editor.commands.focus()
 }
 
 function insertHtmlAfterBlockNode(props: NodeViewProps, html: string) {
@@ -676,8 +1143,23 @@ type SaveReusableBlockRequest = {
   html: string
 }
 
+type BlogAiBlockContext = {
+  articleExcerpt?: string
+  focusKeyword?: string
+  articleType?: string
+  tone?: string
+  outline?: string[]
+  previousBlockHtml?: string
+  nextBlockHtml?: string
+  seoScore?: number
+  seoFailedChecks?: string[]
+}
+
 type BlogBlockquoteStorage = {
   onSaveReusableBlock?: ((data: SaveReusableBlockRequest) => void) | null
+  onRemoveBlock?: ((index: number) => void) | null
+  onReplaceBlock?: ((index: number, html: string, type: "title" | "content" | "footer") => void) | null
+  getAiContext?: ((index: number | null) => BlogAiBlockContext) | null
   reusableBlocks?: BlogReusableBlock[]
   currentTitle?: string
 }
@@ -692,6 +1174,102 @@ function serializeBlockNodeContent(props: NodeViewProps) {
 
   container.appendChild(fragment)
   return stripLegacyBlockLabel(container.innerHTML)
+}
+
+const BLOG_AI_ALLOWED_TAGS = new Set([
+  "P",
+  "H1",
+  "H2",
+  "H3",
+  "UL",
+  "OL",
+  "LI",
+  "STRONG",
+  "EM",
+  "A",
+  "BLOCKQUOTE",
+  "TABLE",
+  "THEAD",
+  "TBODY",
+  "TR",
+  "TH",
+  "TD",
+  "IMG",
+  "HR",
+])
+
+function sanitizeBlockAiHtml(html: string) {
+  if (typeof document === "undefined") return html.trim()
+
+  const template = document.createElement("template")
+  template.innerHTML = html
+
+  template.content.querySelectorAll("*").forEach((element) => {
+    if (!BLOG_AI_ALLOWED_TAGS.has(element.tagName)) {
+      element.replaceWith(...Array.from(element.childNodes))
+      return
+    }
+
+    Array.from(element.attributes).forEach((attribute) => {
+      const name = attribute.name.toLowerCase()
+      const keep =
+        (element.tagName === "A" && name === "href") ||
+        (element.tagName === "IMG" && ["src", "alt", "title"].includes(name))
+
+      if (!keep) element.removeAttribute(attribute.name)
+    })
+
+    if (element.tagName === "A") {
+      const href = element.getAttribute("href") ?? ""
+      if (!/^(https?:\/\/|\/|mailto:|tel:)/i.test(href)) element.removeAttribute("href")
+    }
+
+    if (element.tagName === "IMG") {
+      const src = element.getAttribute("src") ?? ""
+      if (!/^(https?:\/\/|\/)/i.test(src)) element.remove()
+    }
+  })
+
+  return template.innerHTML.trim()
+}
+
+function normalizeBlockAiReplacementHtml(html: string, type: "title" | "content" | "footer") {
+  const unwrapped = unwrapBlockHtml(flattenNestedBlockWrappers(html))
+  const safeHtml = sanitizeBlockAiHtml(unwrapped)
+  if (type === "title") return safeHtml
+
+  return safeHtml
+    .replace(/<h1(\b[^>]*)>/gi, "<h2$1>")
+    .replace(/<\/h1>/gi, "</h2>")
+    .trim()
+}
+
+function extractBlockTitleFromHtml(html: string) {
+  const safeHtml = normalizeBlockAiReplacementHtml(html, "title")
+  if (typeof document === "undefined") return ""
+
+  const container = document.createElement("div")
+  container.innerHTML = safeHtml
+  const heading = container.querySelector("h1, h2, h3")
+  return (heading?.textContent ?? container.textContent ?? "").replace(/\s+/g, " ").trim()
+}
+
+function replaceBlockNodeContent(props: NodeViewProps, html: string) {
+  if (typeof props.getPos !== "function") return false
+
+  const pos = props.getPos()
+  if (typeof pos !== "number") return false
+
+  const type = blockTypeFromNodeAttrs(props.node.attrs)
+  const nextHtml = normalizeBlockAiReplacementHtml(html, type)
+  if (!nextHtml) return false
+
+  props.editor.commands.insertContentAt(
+    { from: pos, to: pos + props.node.nodeSize },
+    wrapHtmlAsBlock(nextHtml, type)
+  )
+  props.editor.commands.focus()
+  return true
 }
 
 function getSelectedDukyBlock(editor: Editor) {
@@ -907,9 +1485,16 @@ function BlogBlockquoteNodeView(props: NodeViewProps) {
   const type = blockTypeFromNodeAttrs(props.node.attrs)
   const info = getTopLevelNodeInfo(props)
   const isFirst = info?.currentIndex === 0
+  const isLockedTitleBlock = type === "title" && isFirst
+  const isAboveTitleBoundary = info?.currentIndex === 1
   const isLast = info ? info.currentIndex === info.siblings.length - 1 : false
   const isDukyBlock = Boolean(props.node.attrs.dukyBlock || props.node.attrs.dukyBlockType)
   const [insertMenuOpen, setInsertMenuOpen] = React.useState(false)
+  const [aiPanelOpen, setAiPanelOpen] = React.useState(false)
+  const [aiPrompt, setAiPrompt] = React.useState("")
+  const [aiLoading, setAiLoading] = React.useState(false)
+  const [aiError, setAiError] = React.useState("")
+  const [aiResult, setAiResult] = React.useState<BlogAiBlockAssistResult | null>(null)
   const blockquoteStorage = (props.editor.storage as unknown as Record<string, unknown>)
     .blockquote as BlogBlockquoteStorage | undefined
   const reusableBlocks = blockquoteStorage?.reusableBlocks ?? []
@@ -918,6 +1503,10 @@ function BlogBlockquoteNodeView(props: NodeViewProps) {
   const handleDragStart = (event: React.DragEvent<HTMLButtonElement>) => {
     const currentInfo = getTopLevelNodeInfo(props)
     if (!currentInfo) return
+    if (isLockedTitleBlock) {
+      event.preventDefault()
+      return
+    }
 
     event.stopPropagation()
     event.dataTransfer.effectAllowed = "move"
@@ -956,6 +1545,62 @@ function BlogBlockquoteNodeView(props: NodeViewProps) {
     saveBlock({ type, html })
   }
 
+  const handleRemoveBlock = (event: React.MouseEvent<HTMLButtonElement>) => {
+    event.preventDefault()
+    event.stopPropagation()
+    removeBlockNode(props)
+  }
+
+  const handleAskAiForBlock = async () => {
+    const instruction = aiPrompt.trim()
+    if (!instruction) {
+      setAiError("Nhập yêu cầu cho AI trước khi gửi.")
+      return
+    }
+
+    setAiLoading(true)
+    setAiError("")
+    setAiResult(null)
+
+    try {
+      const aiContext = blockquoteStorage?.getAiContext?.(info?.currentIndex ?? null) ?? {}
+      const result = await blogService.assistBlockWithAi({
+        instruction,
+        blockHtml: serializeBlockNodeContent(props),
+        blockType: type,
+        articleTitle: currentTitle,
+        ...aiContext,
+      })
+      setAiResult({
+        ...result,
+        replacementHtml: result.replacementHtml
+          ? normalizeBlockAiReplacementHtml(result.replacementHtml, type)
+          : null,
+      })
+    } catch (error) {
+      console.error("Failed to run block AI assistant", error)
+      setAiError("AI chưa xử lý được block này. Kiểm tra backend/API rồi thử lại.")
+    } finally {
+      setAiLoading(false)
+    }
+  }
+
+  const handleApplyAiBlock = (event: React.MouseEvent<HTMLButtonElement>) => {
+    event.preventDefault()
+    event.stopPropagation()
+
+    const replacementHtml = aiResult?.replacementHtml?.trim()
+    if (!replacementHtml) return
+
+    const currentInfo = getTopLevelNodeInfo(props)
+    if (currentInfo && blockquoteStorage?.onReplaceBlock) {
+      blockquoteStorage.onReplaceBlock(currentInfo.currentIndex, replacementHtml, type)
+    } else {
+      replaceBlockNodeContent(props, replacementHtml)
+    }
+    setAiPanelOpen(false)
+  }
+
   const insertBlockAfterCurrent = (html: string, nextType: "title" | "content" | "footer") => {
     insertHtmlAfterBlockNode(props, wrapHtmlAsBlock(html, nextType))
     setInsertMenuOpen(false)
@@ -992,15 +1637,16 @@ function BlogBlockquoteNodeView(props: NodeViewProps) {
     >
       <div
         contentEditable={false}
-        className="mb-3 flex items-center justify-between gap-3 rounded-xl px-2.5 py-1.5 "
+        className="mb-3 flex flex-wrap items-center justify-between gap-3 rounded-xl px-2.5 py-1.5 "
       >
         <span className="rounded-full bg-orange-500/80 px-3.5 py-0.5 text-[11px] font-semibold uppercase tracking-wide text-white">
           {props.node.textContent.includes("Mục lục") ? "Block Mục Lục" : blockTypeLabel(type)}
         </span>
-        <div className="flex items-center gap-1">
+        <div className="ml-auto flex items-center gap-1">
           <button
             type="button"
             draggable
+            disabled={isLockedTitleBlock}
             onMouseDown={(event) => event.stopPropagation()}
             onDragStart={handleDragStart}
             onClick={(event) => event.preventDefault()}
@@ -1012,7 +1658,7 @@ function BlogBlockquoteNodeView(props: NodeViewProps) {
           </button>
           <button
             type="button"
-            disabled={isFirst}
+            disabled={isFirst || isAboveTitleBoundary || isLockedTitleBlock}
             onMouseDown={(event) => event.preventDefault()}
             onClick={() => moveBlockNode(props, "up")}
             className="flex size-7 items-center justify-center rounded-full border border-stone-200 bg-white text-stone-600 transition hover:border-orange-300 hover:bg-orange-50 hover:text-orange-700 disabled:cursor-not-allowed disabled:opacity-40"
@@ -1023,7 +1669,7 @@ function BlogBlockquoteNodeView(props: NodeViewProps) {
           </button>
           <button
             type="button"
-            disabled={isLast}
+            disabled={isLast || isLockedTitleBlock}
             onMouseDown={(event) => event.preventDefault()}
             onClick={() => moveBlockNode(props, "down")}
             className="flex size-7 items-center justify-center rounded-full border border-stone-200 bg-white text-stone-600 transition hover:border-orange-300 hover:bg-orange-50 hover:text-orange-700 disabled:cursor-not-allowed disabled:opacity-40"
@@ -1044,16 +1690,120 @@ function BlogBlockquoteNodeView(props: NodeViewProps) {
           </button>
           <button
             type="button"
-            onMouseDown={(event) => event.preventDefault()}
-            onClick={() => removeBlockNode(props)}
-            className="flex size-7 items-center justify-center rounded-full border border-red-200 bg-white text-red-500 transition hover:border-red-300 hover:bg-red-50"
-            title="Xóa block"
-            aria-label="Xóa block"
+            onMouseDown={(event) => {
+              event.preventDefault()
+              event.stopPropagation()
+            }}
+            onClick={(event) => {
+              event.preventDefault()
+              event.stopPropagation()
+              setAiPanelOpen((current) => !current)
+              setAiError("")
+            }}
+            className={cn(
+              "flex size-7 items-center justify-center rounded-full border bg-white transition",
+              aiPanelOpen
+                ? "border-orange-400 bg-orange-50 text-orange-700"
+                : "border-stone-200 text-stone-600 hover:border-orange-300 hover:bg-orange-50 hover:text-orange-700"
+            )}
+            title="Hỏi AI cho block"
+            aria-label="Hỏi AI cho block"
+            aria-expanded={aiPanelOpen}
           >
-            <IconTrash className="size-4" />
+            <IconWand className="size-4" />
           </button>
+          {!isLockedTitleBlock ? (
+            <button
+              type="button"
+              onMouseDown={(event) => {
+                event.preventDefault()
+                event.stopPropagation()
+              }}
+              onClick={handleRemoveBlock}
+              className="flex size-7 items-center justify-center rounded-full border border-red-200 bg-white text-red-500 transition hover:border-red-300 hover:bg-red-50"
+              title="Xóa block"
+              aria-label="Xóa block"
+            >
+              <IconTrash className="size-4" />
+            </button>
+          ) : null}
         </div>
       </div>
+      {aiPanelOpen ? (
+        <div
+          contentEditable={false}
+          className="mb-4 rounded-lg border border-orange-200 bg-orange-50/40 p-3 text-sm not-prose"
+          onMouseDown={(event) => event.stopPropagation()}
+        >
+          <div className="mb-2 flex items-center justify-between gap-2">
+            <p className="font-semibold text-stone-800">AI cho block</p>
+            <button
+              type="button"
+              onMouseDown={(event) => event.preventDefault()}
+              onClick={() => setAiPanelOpen(false)}
+              className="flex size-7 items-center justify-center rounded-md text-stone-500 hover:bg-white hover:text-stone-700"
+              title="Đóng"
+              aria-label="Đóng AI cho block"
+            >
+              <IconX className="size-4" />
+            </button>
+          </div>
+          <div className="space-y-2">
+            <Textarea
+              value={aiPrompt}
+              onChange={(event) => setAiPrompt(event.target.value)}
+              onKeyDown={(event) => {
+                event.stopPropagation()
+                if ((event.ctrlKey || event.metaKey) && event.key === "Enter") {
+                  event.preventDefault()
+                  void handleAskAiForBlock()
+                }
+              }}
+              placeholder="Ví dụ: Viết lại ngắn gọn hơn, thêm CTA nhẹ, hoặc tóm tắt nội dung..."
+              className="min-h-20 resize-y bg-white text-sm"
+            />
+            <div className="flex justify-end">
+              <Button
+                type="button"
+                size="sm"
+                disabled={aiLoading || !aiPrompt.trim()}
+                onMouseDown={(event) => {
+                  event.preventDefault()
+                  event.stopPropagation()
+                }}
+                onClick={(event) => {
+                  event.preventDefault()
+                  event.stopPropagation()
+                  void handleAskAiForBlock()
+                }}
+              >
+                {aiLoading ? <IconLoader2 className="size-4 animate-spin" /> : <IconWand className="size-4" />}
+                {aiLoading ? "Đang hỏi AI" : "Gửi AI"}
+              </Button>
+            </div>
+          </div>
+          {aiError ? <p className="mt-3 text-sm text-red-600">{aiError}</p> : null}
+          {aiResult ? (
+            <div className="mt-3 space-y-3 border-t border-orange-200 pt-3">
+              <p className="whitespace-pre-wrap leading-6 text-stone-700">{aiResult.answer}</p>
+              {aiResult.replacementHtml ? (
+                <>
+                  <div
+                    className="rounded-md border border-stone-200 bg-white p-3 text-stone-800 [&_h1]:text-xl [&_h2]:text-lg [&_h3]:text-base [&_p]:my-2"
+                    dangerouslySetInnerHTML={{ __html: aiResult.replacementHtml }}
+                  />
+                  <div className="flex justify-end">
+                    <Button type="button" size="sm" onClick={handleApplyAiBlock}>
+                      <IconCheck className="size-4" />
+                      Áp dụng vào block
+                    </Button>
+                  </div>
+                </>
+              ) : null}
+            </div>
+          ) : null}
+        </div>
+      ) : null}
       <NodeViewContent className="[&>p:first-child]:hidden" />
       <div contentEditable={false} className="relative mt-4 flex justify-center">
         <button
@@ -1072,10 +1822,10 @@ function BlogBlockquoteNodeView(props: NodeViewProps) {
             <button
               type="button"
               onMouseDown={(event) => event.preventDefault()}
-              onClick={() => insertBlockAfterCurrent(`<h2>${currentTitle}</h2>`, "title")}
+              onClick={() => insertBlockAfterCurrent(`<h2>${currentTitle}</h2>`, "content")}
               className="flex w-full items-center justify-between rounded-xl px-3 py-2 text-left font-medium text-stone-700 transition hover:bg-orange-50 hover:text-orange-700"
             >
-              <span>Block Tiêu Đề</span>
+              <span>Block Heading</span>
               <IconPlus className="size-4" />
             </button>
             <button
@@ -1159,13 +1909,18 @@ function BlogBlockquoteNodeView(props: NodeViewProps) {
 
 const BlogBlockquote = Blockquote.extend({
   addStorage() {
-    return {
-      onSaveReusableBlock: null as
-        | ((data: SaveReusableBlockRequest) => void)
-        | null,
-      reusableBlocks: [] as BlogReusableBlock[],
-      currentTitle: "",
-    }
+      return {
+        onSaveReusableBlock: null as
+          | ((data: SaveReusableBlockRequest) => void)
+          | null,
+        onRemoveBlock: null as ((index: number) => void) | null,
+        onReplaceBlock: null as
+          | ((index: number, html: string, type: "title" | "content" | "footer") => void)
+          | null,
+        getAiContext: null as ((index: number | null) => BlogAiBlockContext) | null,
+        reusableBlocks: [] as BlogReusableBlock[],
+        currentTitle: "",
+      }
   },
 
   addAttributes() {
@@ -1479,6 +2234,9 @@ function cleanSeo(seo: CreateBlogPostPayload["seo"]) {
     ogImageMediaId: emptyToNull(seo.ogImageMediaId),
     twitterTitle: emptyToNull(seo.twitterTitle),
     twitterDescription: emptyToNull(seo.twitterDescription),
+    focusKeyword: emptyToNull(seo.focusKeyword),
+    seoScore: seo.seoScore ?? null,
+    analysisJson: seo.analysisJson ?? null,
     noIndex: seo.noIndex ?? false,
     noFollow: seo.noFollow ?? false,
   }
@@ -1514,9 +2272,17 @@ function injectHeadingIds(html: string): string {
   })
 }
 
-function normalizePayload(data: CreateBlogPostPayload): CreateBlogPostPayload {
-  const generatedSlug = slugify(data.title)
-  const contentWithHeadingIds = injectHeadingIds(data.content.trim())
+function normalizePayload(
+  data: CreateBlogPostPayload,
+  seoExtras?: Partial<NonNullable<CreateBlogPostPayload["seo"]>>
+): CreateBlogPostPayload {
+  const generatedSlug = slugify(data.slug || data.title)
+  const contentWithTitleBlock = ensureTitleBlockContent(data.content, data.title)
+  const contentWithHeadingIds = injectHeadingIds(contentWithTitleBlock.trim())
+  const seo = {
+    ...(data.seo ?? {}),
+    ...(seoExtras ?? {}),
+  }
 
   return {
     title: data.title.trim(),
@@ -1527,7 +2293,7 @@ function normalizePayload(data: CreateBlogPostPayload): CreateBlogPostPayload {
     status: data.status ?? ContentStatus.DRAFT,
     categoryIds: data.categoryIds ?? [],
     tagIds: data.tagIds ?? [],
-    seo: cleanSeo(data.seo),
+    seo: cleanSeo(seo),
   }
 }
 
@@ -2251,6 +3017,8 @@ function BlogRichTextEditor({
     addTocBlock: () => void
     moveBlock: (fromIndex: number, toIndex: number) => void
     removeBlock: (index: number) => void
+    replaceBlock: (index: number, html: string, type: "title" | "content" | "footer") => void
+    getAiContext: (index: number | null) => BlogAiBlockContext
     reusableBlocks: BlogReusableBlock[]
     currentTitle: string
     onSelectReusableBlock: (blockId: string) => void
@@ -2362,11 +3130,17 @@ function BlogRichTextEditor({
     if (!storage.blockquote) return
 
     storage.blockquote.onSaveReusableBlock = blockControls?.onSaveReusableBlock ?? null
+    storage.blockquote.onRemoveBlock = blockControls?.removeBlock ?? null
+    storage.blockquote.onReplaceBlock = blockControls?.replaceBlock ?? null
+    storage.blockquote.getAiContext = blockControls?.getAiContext ?? null
     storage.blockquote.reusableBlocks = blockControls?.reusableBlocks ?? []
     storage.blockquote.currentTitle = blockControls?.currentTitle ?? ""
   }, [
     blockControls?.currentTitle,
     blockControls?.onSaveReusableBlock,
+    blockControls?.removeBlock,
+    blockControls?.replaceBlock,
+    blockControls?.getAiContext,
     blockControls?.reusableBlocks,
     editor,
   ])
@@ -2428,7 +3202,11 @@ function BlogRichTextEditor({
     const nextHtml = value ?? ""
 
     if (currentHtml !== nextHtml) {
-      editor.commands.setContent(nextHtml, { emitUpdate: false })
+      queueMicrotask(() => {
+        if (!editor.isDestroyed) {
+          editor.commands.setContent(nextHtml, { emitUpdate: false })
+        }
+      })
     }
     setHtmlDraft(toHtmlDraftFromContent(nextHtml))
     setIsHtmlDraftDirty(false)
@@ -2646,7 +3424,7 @@ function BlogRichTextEditor({
               className="rounded-full border-orange-500 bg-orange-300/30"
               onClick={blockControls.addPostTitleBlock}
             >
-              Block Tiêu Đề
+              Đồng bộ H1 đầu bài
             </Button>
             <Button
               type="button"
@@ -3171,9 +3949,15 @@ export default function BlogPostDetailPage() {
   const [isLoading, setIsLoading] = React.useState(!isNew)
   const [isSaving, setIsSaving] = React.useState(false)
   const [isPreviewOpen, setIsPreviewOpen] = React.useState(false)
+  const [isAiPreviewOpen, setIsAiPreviewOpen] = React.useState(false)
   const [isMediaPickerOpen, setIsMediaPickerOpen] = React.useState(false)
   const [coverUrl, setCoverUrl] = React.useState("")
   const [feedback, setFeedback] = React.useState<Feedback | null>(null)
+  const [autoDraftPostId, setAutoDraftPostId] = React.useState<string | null>(null)
+  const draftUuidRef = React.useRef(createDraftUuid())
+  const isAutoSavingRef = React.useRef(false)
+  const lastAutoSaveSignatureRef = React.useRef<string | null>(null)
+  const lastAutoSeoFieldsRef = React.useRef<ReturnType<typeof buildAutoSeoFields> | null>(null)
 
   const {
     register,
@@ -3186,15 +3970,11 @@ export default function BlogPostDetailPage() {
   } = useForm<CreateBlogPostPayload>({
     resolver: zodResolver(CreateBlogPostPayloadSchema),
     defaultValues: {
-      title: isNew ? DEFAULT_NEW_BLOG_MOCK_TITLE : "",
+      title: isNew ? EMPTY_NEW_BLOG_TITLE : "",
       slug: "",
-      excerpt: isNew ? DEFAULT_NEW_BLOG_MOCK_EXCERPT : "",
+      excerpt: "",
       content: isNew
-        ? mergeBlocksToContent([
-            `<h2>${DEFAULT_NEW_BLOG_MOCK_TITLE}</h2>`,
-            DEFAULT_NEW_BLOG_MOCK_BODY_CONTENT,
-            DEFAULT_NEW_BLOG_MOCK_FOOTER_CONTENT,
-          ])
+        ? mergeBlocksToContent([createTitleBlock(EMPTY_NEW_BLOG_TITLE)])
         : "",
       coverMediaId: "",
       status: ContentStatus.DRAFT,
@@ -3221,6 +4001,11 @@ export default function BlogPostDetailPage() {
     () => splitContentToBlocks(preview.content),
     [preview.content]
   )
+  React.useEffect(() => {
+    const ensuredContent = ensureTitleBlockContent(preview.content, preview.title)
+    if (ensuredContent === (preview.content ?? "")) return
+    setValue("content", ensuredContent, { shouldDirty: true, shouldValidate: true })
+  }, [preview.content, preview.title, setValue])
   const publishPreviewHtml = React.useMemo(
     () => toPublishableBlogHtml(preview.content),
     [preview.content]
@@ -3275,7 +4060,9 @@ export default function BlogPostDetailPage() {
         toIndex < 0 ||
         fromIndex >= blocks.length ||
         toIndex >= blocks.length ||
-        fromIndex === toIndex
+        fromIndex === toIndex ||
+        fromIndex === 0 ||
+        toIndex === 0
       ) {
         return
       }
@@ -3290,16 +4077,37 @@ export default function BlogPostDetailPage() {
     (index: number) => {
       const blocks = [...splitContentToBlocks(preview.content)]
       if (index < 0 || index >= blocks.length) return
+      if (index === 0 && isTitleBlockHtml(blocks[index])) return
       blocks.splice(index, 1)
       setValue("content", mergeBlocksToContent(blocks), { shouldDirty: true, shouldValidate: true })
     },
     [preview.content, setValue]
   )
 
+  const replaceBlock = React.useCallback(
+    (index: number, html: string, type: "title" | "content" | "footer") => {
+      const blocks = [...splitContentToBlocks(preview.content)]
+      if (index < 0 || index >= blocks.length) return
+
+      if (index === 0 && isTitleBlockHtml(blocks[index])) {
+        const nextTitle = extractBlockTitleFromHtml(html)
+        if (!nextTitle) return
+        setValue("title", nextTitle, { shouldDirty: true, shouldValidate: true })
+        return
+      }
+
+      const nextHtml = normalizeBlockAiReplacementHtml(html, type)
+      if (!nextHtml) return
+      blocks[index] = wrapHtmlAsBlock(nextHtml, type)
+      setValue("content", mergeBlocksToContent(blocks), { shouldDirty: true, shouldValidate: true })
+    },
+    [preview.content, setValue]
+  )
+
   const addPostTitleBlock = React.useCallback(() => {
-    const title = (preview.title ?? "").trim() || "TiҪu ���ề bҠi viết"
-    insertContentBlock(`<h2>${title}</h2>`, "title")
-  }, [insertContentBlock, preview.title])
+    const nextContent = ensureTitleBlockContent(preview.content, preview.title)
+    setValue("content", nextContent, { shouldDirty: true, shouldValidate: true })
+  }, [preview.content, preview.title, setValue])
 
   const addContactFooterBlock = React.useCallback(() => {
     insertContentBlock(
@@ -3382,20 +4190,46 @@ export default function BlogPostDetailPage() {
 
   const selectedStatus = preview.status ?? ContentStatus.DRAFT
   const generatedSlug = slugify(preview.title || "bai-viet")
+  const activePostId = isNew ? autoDraftPostId : postId
 
   const [focusKeyword, setFocusKeyword] = React.useState(
     post?.seo?.focusKeyword ?? ""
   )
+  const [seoKeywordInput, setSeoKeywordInput] = React.useState("")
   const [isSeoDrawerOpen, setIsSeoDrawerOpen] = React.useState(false)
   const [lastAutoSaved, setLastAutoSaved] = React.useState<Date | null>(null)
   const [copiedLink, setCopiedLink] = React.useState<string | null>(null)
+  const [aiTask, setAiTask] = React.useState<BlogAiTask>("SEO")
+  const [aiTone, setAiTone] = React.useState("Tư vấn thân thiện, chuyên nghiệp")
+  const [aiArticleType, setAiArticleType] = React.useState("Hướng dẫn SEO bán hàng")
+  const [isAiLoading, setIsAiLoading] = React.useState(false)
+  const [isKeywordAiLoading, setIsKeywordAiLoading] = React.useState(false)
+  const [aiResult, setAiResult] = React.useState<BlogAiAssistResult | null>(null)
+  const [aiMediaLibrary, setAiMediaLibrary] = React.useState<Media[]>([])
+  const aiAllowsFullContent =
+    aiTask === "FULL_DRAFT" || aiTask === "SEO" || aiTask === "OPTIMIZE"
+  const aiContentHtml = aiAllowsFullContent ? aiResult?.contentHtml : null
+  const aiPreviewHtml = React.useMemo(() => {
+    const mediaById = new Map(aiMediaLibrary.map((media) => [media.id, media]))
+    return toPublishableBlogHtml(
+      insertAiSelectedImagesIntoHtml(aiContentHtml ?? "", aiResult?.selectedMedia, mediaById)
+    )
+  }, [aiContentHtml, aiMediaLibrary, aiResult?.selectedMedia])
+  const aiSelectedCoverUrl = React.useMemo(() => {
+    const selectedCoverId = aiResult?.selectedMedia?.coverMediaId
+    if (!selectedCoverId) return ""
+    const media = aiMediaLibrary.find((item) => item.id === selectedCoverId)
+    return getMediaAssetUrl(media)
+  }, [aiMediaLibrary, aiResult?.selectedMedia?.coverMediaId])
 
   const seoInput: SeoInput | null = React.useMemo(() => {
     // Use first keyword from comma-separated list as primary focus keyword
-    const primaryKeyword = focusKeyword.split(",").map((k) => k.trim()).filter(Boolean)[0] || ""
+    const keywords = focusKeyword.split(",").map((k) => k.trim()).filter(Boolean)
+    const primaryKeyword = keywords[0] || ""
     if (!primaryKeyword) return null
     return {
       focusKeyword: primaryKeyword,
+      secondaryKeywords: keywords.slice(1),
       seoTitle: preview.seo?.metaTitle || preview.title || "",
       metaDescription: preview.seo?.metaDescription || preview.excerpt || "",
       slug: generatedSlug,
@@ -3405,11 +4239,92 @@ export default function BlogPostDetailPage() {
   }, [focusKeyword, preview.seo?.metaTitle, preview.title, preview.seo?.metaDescription, preview.excerpt, generatedSlug, preview.content])
 
   const seoResult = useSeoAnalysis(seoInput)
+  const seoKeywords = React.useMemo(
+    () => focusKeyword.split(",").map((keyword) => keyword.trim()).filter(Boolean),
+    [focusKeyword]
+  )
+  const primaryKeywordWarning = getPrimaryKeywordWarning(seoKeywords[0], preview.title)
+
+  const updateFocusKeyword = React.useCallback(
+    (value: string) => {
+      const normalized = normalizeKeywordList(value)
+      setFocusKeyword(normalized)
+      setValue("seo.focusKeyword", normalized, { shouldDirty: true })
+    },
+    [setValue]
+  )
+
+  const addSeoKeyword = React.useCallback(() => {
+    const nextKeyword = seoKeywordInput.trim()
+    if (!nextKeyword) return
+    const exists = seoKeywords.some(
+      (keyword) => keyword.toLowerCase() === nextKeyword.toLowerCase()
+    )
+    if (!exists) {
+      updateFocusKeyword([...seoKeywords, nextKeyword].join(", "))
+    }
+    setSeoKeywordInput("")
+  }, [seoKeywordInput, seoKeywords, updateFocusKeyword])
+
+  const handleSeoKeywordKeyDown = React.useCallback(
+    (event: React.KeyboardEvent<HTMLInputElement>) => {
+      if (event.key === "Enter") {
+        event.preventDefault()
+        addSeoKeyword()
+      }
+      if (event.key === "Backspace" && !seoKeywordInput && seoKeywords.length > 0) {
+        event.preventDefault()
+        updateFocusKeyword(seoKeywords.slice(0, -1).join(", "))
+      }
+    },
+    [addSeoKeyword, seoKeywordInput, seoKeywords, updateFocusKeyword]
+  )
+
+  const removeSeoKeyword = React.useCallback(
+    (index: number) => {
+      updateFocusKeyword(seoKeywords.filter((_, keywordIndex) => keywordIndex !== index).join(", "))
+    },
+    [seoKeywords, updateFocusKeyword]
+  )
 
   // Table of Contents auto-generation
   const tocItems = React.useMemo(
     () => generateTableOfContents(preview.content || ''),
     [preview.content]
+  )
+  const getBlockAiContext = React.useCallback(
+    (index: number | null): BlogAiBlockContext => {
+      const blocks = splitContentToBlocks(preview.content)
+      const previousBlock = index !== null && index > 0 ? blocks[index - 1] : undefined
+      const nextBlock =
+        index !== null && index >= 0 && index < blocks.length - 1
+          ? blocks[index + 1]
+          : undefined
+
+      return {
+        articleExcerpt: (preview.excerpt ?? "").trim().slice(0, 500) || undefined,
+        focusKeyword: focusKeyword.trim().slice(0, 500) || undefined,
+        articleType: aiArticleType.trim().slice(0, 200) || undefined,
+        tone: aiTone.trim().slice(0, 200) || undefined,
+        outline: tocItems
+          .slice(0, 30)
+          .map((item) => `${item.level === 2 ? "H2" : "H3"}: ${item.text}`.slice(0, 300)),
+        previousBlockHtml: previousBlock
+          ? unwrapBlockHtml(previousBlock).slice(0, 6000)
+          : undefined,
+        nextBlockHtml: nextBlock
+          ? unwrapBlockHtml(nextBlock).slice(0, 6000)
+          : undefined,
+        seoScore: seoResult?.score,
+        seoFailedChecks: seoResult?.checks
+          .filter((check) => !check.passed)
+          .slice(0, 20)
+          .map((check) =>
+            `${check.label}${check.description ? `: ${check.description}` : ""}`.slice(0, 300)
+          ),
+      }
+    },
+    [aiArticleType, aiTone, focusKeyword, preview.content, preview.excerpt, seoResult, tocItems]
   )
 
   // Internal link suggestions
@@ -3426,28 +4341,102 @@ export default function BlogPostDetailPage() {
     [preview.content, allProducts]
   )
 
-  // Auto-save draft every 30 seconds
-  React.useEffect(() => {
-    if (isNew) return // Don't auto-save new posts that haven't been created yet
+  const autoSaveDraft = React.useCallback(async () => {
+    if (isAutoSavingRef.current) return
 
-    const interval = window.setInterval(async () => {
-      const currentValues = getValues()
-      if (!isDirty) return
-      if (currentValues.status !== ContentStatus.DRAFT) return
+    const currentValues = getValues()
+    if (!isDirty) return
+    if (currentValues.status !== ContentStatus.DRAFT) return
 
-      try {
-        const payload = normalizePayload(currentValues)
-        if (postId) {
-          await blogService.updatePost(postId, payload)
-          setLastAutoSaved(new Date())
+    const signature = JSON.stringify({
+      title: currentValues.title,
+      excerpt: currentValues.excerpt,
+      content: currentValues.content,
+      coverMediaId: currentValues.coverMediaId,
+      categoryIds: currentValues.categoryIds,
+      tagIds: currentValues.tagIds,
+      seo: currentValues.seo,
+      focusKeyword,
+      seoScore: seoResult?.score ?? null,
+    })
+    if (lastAutoSaveSignatureRef.current === signature) return
+
+    const title = isNew && isDefaultNewBlogTitle(currentValues.title)
+      ? `Bài viết nháp-${draftUuidRef.current}`
+      : currentValues.title
+    const content = currentValues.content?.trim()
+      ? currentValues.content
+      : "<p>Bản nháp tự động.</p>"
+
+    try {
+      isAutoSavingRef.current = true
+      const payload = normalizePayload(
+        {
+          ...currentValues,
+          title,
+          slug: currentValues.slug || uniqueSlug(title, draftUuidRef.current),
+          content,
+          status: ContentStatus.DRAFT,
+        },
+        {
+          focusKeyword: focusKeyword.trim(),
+          seoScore: seoResult?.score ?? null,
+          analysisJson: seoResult ?? null,
         }
-      } catch (error) {
-        console.error("Auto-save failed", error)
+      )
+
+      if (activePostId) {
+        try {
+          await blogService.updatePost(activePostId, payload)
+        } catch (error) {
+          if (!isSlugConflictError(error)) throw error
+          const retryPayload = {
+            ...payload,
+            slug: uniqueSlug(payload.slug || payload.title, draftUuidRef.current),
+          }
+          setValue("slug", retryPayload.slug ?? "", { shouldDirty: true })
+          await blogService.updatePost(activePostId, retryPayload)
+        }
+      } else if (isNew) {
+        let created: BlogPost
+        try {
+          created = await blogService.createPost(payload)
+        } catch (error) {
+          if (!isSlugConflictError(error)) throw error
+          created = await blogService.createPost({
+            ...payload,
+            slug: uniqueSlug(payload.slug || payload.title, draftUuidRef.current),
+          })
+        }
+        setAutoDraftPostId(created.id)
+        setValue("slug", created.slug, { shouldDirty: false })
       }
-    }, 30000)
+
+      lastAutoSaveSignatureRef.current = signature
+      setLastAutoSaved(new Date())
+    } catch (error) {
+      console.error("Auto-save failed", error)
+    } finally {
+      isAutoSavingRef.current = false
+    }
+  }, [activePostId, focusKeyword, getValues, isDirty, isNew, seoResult])
+
+  // Auto-save draft quickly so a new post is not lost when closing the tab.
+  React.useEffect(() => {
+    const timeout = window.setTimeout(() => {
+      void autoSaveDraft()
+    }, isNew && !autoDraftPostId ? 2500 : 8000)
+
+    return () => window.clearTimeout(timeout)
+  }, [autoSaveDraft, autoDraftPostId, isNew, preview])
+
+  React.useEffect(() => {
+    const interval = window.setInterval(() => {
+      void autoSaveDraft()
+    }, 15000)
 
     return () => window.clearInterval(interval)
-  }, [isNew, postId, isDirty, getValues])
+  }, [autoSaveDraft])
 
   React.useEffect(() => {
     const nextSlug = slugify(preview.title ?? "")
@@ -3458,6 +4447,52 @@ export default function BlogPostDetailPage() {
       shouldValidate: Boolean(nextSlug),
     })
   }, [preview.slug, preview.title, setValue])
+
+  React.useEffect(() => {
+    const autoSeo = buildAutoSeoFields({
+      title: preview.title,
+      excerpt: preview.excerpt,
+      content: preview.content,
+      slug: generatedSlug,
+      focusKeyword,
+    })
+    const previousAutoSeo = lastAutoSeoFieldsRef.current
+    const seo = preview.seo ?? {}
+    const fields = [
+      "metaTitle",
+      "metaDescription",
+      "ogTitle",
+      "ogDescription",
+      "twitterTitle",
+      "twitterDescription",
+      "canonicalUrl",
+    ] as const
+
+    fields.forEach((field) => {
+      const currentValue = (seo[field] ?? "").trim()
+      const previousValue = previousAutoSeo?.[field] ?? ""
+      const nextValue = autoSeo[field]
+
+      if (!nextValue) return
+      if (currentValue === nextValue) return
+      if (currentValue && currentValue !== previousValue) return
+
+      setValue(`seo.${field}`, nextValue, {
+        shouldDirty: Boolean(currentValue),
+        shouldValidate: false,
+      })
+    })
+
+    lastAutoSeoFieldsRef.current = autoSeo
+  }, [
+    focusKeyword,
+    generatedSlug,
+    preview.content,
+    preview.excerpt,
+    preview.seo,
+    preview.title,
+    setValue,
+  ])
 
   const fetchOptions = React.useCallback(async () => {
     try {
@@ -3489,8 +4524,8 @@ export default function BlogPostDetailPage() {
         const products = productsResponse?.DT?.data || productsResponse?.data || []
         setAllProducts(
           products
-            .filter((p: any) => p.title && p.slug)
-            .map((p: any) => ({ title: p.title, slug: p.slug }))
+            .filter((p: any) => (p.title || p.name) && p.slug)
+            .map((p: any) => ({ title: p.title || p.name, slug: p.slug }))
         )
       } catch {
         // Non-critical: silently ignore if products fetch fails
@@ -3531,10 +4566,14 @@ export default function BlogPostDetailPage() {
           ogImageMediaId: data.seo?.ogImageMediaId ?? "",
           twitterTitle: data.seo?.twitterTitle ?? "",
           twitterDescription: data.seo?.twitterDescription ?? "",
+          focusKeyword: data.seo?.focusKeyword ?? "",
+          seoScore: data.seo?.seoScore ?? null,
+          analysisJson: data.seo?.analysisJson ?? null,
           noIndex: data.seo?.noIndex ?? false,
           noFollow: data.seo?.noFollow ?? false,
         },
       })
+      setFocusKeyword(data.seo?.focusKeyword ?? "")
     } catch (error) {
       console.error("Failed to fetch blog post", error)
       setFeedback({
@@ -3576,20 +4615,348 @@ export default function BlogPostDetailPage() {
     )
   }
 
+  const suggestSeoKeywords = async () => {
+    try {
+      setIsKeywordAiLoading(true)
+      setFeedback(null)
+
+      const selectedCategories = categories
+        .filter((category) => (preview.categoryIds ?? []).includes(category.id))
+        .map((category) => ({
+          title: category.name,
+          slug: category.slug,
+          url: `/blog?category=${category.slug}`,
+        }))
+      const selectedTags = tags
+        .filter((tag) => (preview.tagIds ?? []).includes(tag.id))
+        .map((tag) => ({
+          title: tag.name,
+          slug: tag.slug,
+          url: `/blog?tag=${tag.slug}`,
+        }))
+
+      const result = await blogService.assistWithAi({
+        task: "SEO",
+        title: preview.title || "",
+        slug: generatedSlug,
+        excerpt: preview.excerpt || "",
+        content: preview.content || "",
+        focusKeyword: focusKeyword.trim(),
+        articleType: aiArticleType || "Gợi ý từ khóa SEO",
+        tone: "Ngắn gọn, thực tế, ưu tiên intent tìm kiếm của khách hàng Việt Nam",
+        categories: selectedCategories,
+        tags: selectedTags,
+        products: allProducts.slice(0, 30).map((product) => ({
+          title: product.title,
+          slug: product.slug,
+          url: storefrontPath(`/products/${product.slug}`),
+        })),
+        relatedPosts: allOtherPosts.slice(0, 30).map((item) => ({
+          title: item.title,
+          slug: item.slug,
+          url: storefrontPath(`/blog/${item.slug}`),
+        })),
+        extraContext: {
+          mode: "SEO_KEYWORD_SUGGESTION",
+          instruction:
+            "Tra ve seo.focusKeyword dang danh sach ngan cach bang dau phay. Tu khoa dau tien la key chinh: phai la cum search ngan 2-6 tu, khong copy nguyen tieu de, khong viet hoa kieu title, khong dung dau cau. Neu title co nam 2026 thi chi giu nam khi no thuc su la search intent. Sau key chinh la 3-5 key phu/long-tail de mo rong ngu nghia. Neu focusKeyword hien tai qua dai hoac giong title thi hay rut gon key chinh thay vi giu nguyen.",
+          currentKeywords: seoKeywords,
+          examples: {
+            badPrimary: "Xu Hướng Áo Blazer Nữ 2026",
+            goodPrimary: "áo blazer nữ 2026",
+            secondary: [
+              "xu hướng áo blazer nữ",
+              "cách phối áo blazer nữ",
+              "blazer nữ công sở",
+              "áo blazer nữ đẹp",
+            ],
+          },
+        },
+      })
+
+      const suggestedKeywords = normalizeKeywordList(result.seo?.focusKeyword ?? "")
+      if (!suggestedKeywords) {
+        setFeedback({
+          message: "AI chưa gợi ý được từ khóa. Hãy nhập tiêu đề hoặc mô tả bài trước.",
+          tone: "error",
+        })
+        return
+      }
+
+      updateFocusKeyword(suggestedKeywords)
+      setFeedback({
+        message: "Đã gợi ý từ khóa SEO. Keyword đầu tiên là từ khóa chính.",
+        tone: "success",
+      })
+    } catch (error) {
+      console.error("Failed to suggest SEO keywords", error)
+      setFeedback({
+        message: "AI chưa gợi ý được từ khóa. Kiểm tra backend/API rồi thử lại.",
+        tone: "error",
+      })
+    } finally {
+      setIsKeywordAiLoading(false)
+    }
+  }
+
+  const runBlogAi = async () => {
+    try {
+      setIsAiLoading(true)
+      setAiResult(null)
+      setFeedback(null)
+      setAiMediaLibrary([])
+
+      const selectedCategories = categories
+        .filter((category) => (preview.categoryIds ?? []).includes(category.id))
+        .map((category) => ({
+          title: category.name,
+          slug: category.slug,
+          url: `/blog?category=${category.slug}`,
+        }))
+      const selectedTags = tags
+        .filter((tag) => (preview.tagIds ?? []).includes(tag.id))
+        .map((tag) => ({
+          title: tag.name,
+          slug: tag.slug,
+          url: `/blog?tag=${tag.slug}`,
+        }))
+      const result = await blogService.assistWithAi({
+        task: aiTask,
+        title: preview.title || "",
+        slug: generatedSlug,
+        excerpt: preview.excerpt || "",
+        content: preview.content || "",
+        focusKeyword: focusKeyword.trim(),
+        articleType: aiArticleType,
+        tone: aiTone,
+        categories: selectedCategories,
+        tags: selectedTags,
+        products: allProducts.slice(0, 50).map((product) => ({
+          title: product.title,
+          slug: product.slug,
+          url: storefrontPath(`/products/${product.slug}`),
+        })),
+        relatedPosts: allOtherPosts.slice(0, 50).map((item) => ({
+          title: item.title,
+          slug: item.slug,
+          url: storefrontPath(`/blog/${item.slug}`),
+        })),
+        extraContext: {
+          coverUrl,
+          currentSeoScore: seoResult?.score ?? null,
+          seoAnalysis: buildSeoAnalysisForAi(seoResult),
+          metadataManagedByFrontend: true,
+          lockedFocusKeyword: focusKeyword.trim() || null,
+        },
+      })
+
+      setAiResult(result)
+      setAiMediaLibrary(await fetchAiSelectedMedia(result))
+      setFeedback({
+        message: "AI đã tạo gợi ý. Kiểm tra rồi chọn phần muốn áp dụng.",
+        tone: "success",
+      })
+    } catch (error) {
+      console.error("Failed to generate blog AI suggestions", error)
+      const message =
+        typeof error === "object" &&
+        error !== null &&
+        "code" in error &&
+        (error as { code?: string }).code === "ECONNABORTED"
+          ? "AI xử lý quá lâu và bị timeout. Đã tăng timeout, thử lại sau vài giây."
+          : "AI chưa tạo được gợi ý. Kiểm tra API key/backend rồi thử lại."
+      setFeedback({
+        message,
+        tone: "error",
+      })
+    } finally {
+      setIsAiLoading(false)
+    }
+  }
+
+  const applyAiSeo = () => {
+    if (!aiResult?.seo) return
+    const seo = aiResult.seo
+
+    if (!focusKeyword.trim() && seo.focusKeyword) {
+      updateFocusKeyword(seo.focusKeyword)
+    }
+
+    setFeedback({ message: "Đã áp dụng gợi ý SEO từ AI.", tone: "success" })
+  }
+
+  const applyAiOptimization = () => {
+    const isSeoTask = aiTask === "SEO"
+    const mediaById = new Map(aiMediaLibrary.map((media) => [media.id, media]))
+    const selectedCoverMedia = aiResult?.selectedMedia?.coverMediaId
+      ? mediaById.get(aiResult.selectedMedia.coverMediaId)
+      : null
+    const selectedOgMedia = aiResult?.selectedMedia?.ogImageMediaId
+      ? mediaById.get(aiResult.selectedMedia.ogImageMediaId)
+      : selectedCoverMedia
+
+    if (!isSeoTask && aiResult?.title) {
+      setValue("title", aiResult.title, { shouldDirty: true, shouldValidate: true })
+    }
+    if (!isSeoTask && aiResult?.slug) {
+      setValue("slug", slugify(aiResult.slug), { shouldDirty: true, shouldValidate: true })
+    }
+    if (!isSeoTask && aiResult?.excerpt) {
+      setValue("excerpt", aiResult.excerpt, { shouldDirty: true })
+    }
+    if (selectedCoverMedia) {
+      setValue("coverMediaId", selectedCoverMedia.id, { shouldDirty: true, shouldValidate: true })
+      setCoverUrl(getMediaAssetUrl(selectedCoverMedia))
+    }
+    if (selectedOgMedia) {
+      setValue("seo.ogImageMediaId", selectedOgMedia.id, { shouldDirty: true })
+    }
+    if (aiContentHtml) {
+      const contentHtmlWithImages = insertAiSelectedImagesIntoHtml(
+        aiContentHtml,
+        aiResult?.selectedMedia,
+        mediaById
+      )
+      setValue("content", isSeoTask
+        ? composeAiSeoContentBlocks(contentHtmlWithImages)
+        : composeAiContentBlocks(
+            contentHtmlWithImages,
+            aiResult?.title || preview.title
+          ), {
+        shouldDirty: true,
+        shouldValidate: true,
+      })
+    }
+    applyAiSeo()
+    setFeedback({
+      message: isSeoTask
+        ? aiContentHtml
+          ? "Đã áp dụng phần sửa điểm SEO vào nội dung."
+          : "Đã áp dụng gợi ý SEO từ AI."
+        : aiContentHtml
+          ? "Đã áp dụng bản tối ưu bài viết và ảnh AI."
+          : "Đã áp dụng gợi ý tối ưu bài viết.",
+      tone: "success",
+    })
+  }
+
+  const appendAiContent = () => {
+    const nextBlocks = splitContentToBlocks(preview.content)
+    const initialBlockCount = nextBlocks.length
+
+    if (aiResult?.outline?.length) {
+      nextBlocks.push(...splitOutlineIntoContentBlocks(aiResult.outline))
+    }
+
+    if (aiResult?.faqs?.length) {
+      nextBlocks.push(wrapHtmlAsBlock(
+        `<h2>Câu hỏi thường gặp</h2>${aiResult.faqs
+          .map((faq) => `<h3>${faq.question}</h3><p>${faq.answer}</p>`)
+          .join("")}`,
+        "content"
+      ))
+    }
+
+    if (aiResult?.internalLinks?.length) {
+      nextBlocks.push(wrapHtmlAsBlock(
+        `<h2>Gợi ý liên quan</h2><ul>${aiResult.internalLinks
+          .map((link) => `<li><a href="${link.url}">${link.label}</a></li>`)
+          .join("")}</ul>`,
+        "content"
+      ))
+    }
+
+    if (nextBlocks.length === initialBlockCount) return
+
+    setValue("content", mergeBlocksToContent(nextBlocks), { shouldDirty: true, shouldValidate: true })
+    setFeedback({ message: "Đã chèn phần gợi ý AI vào cuối bài.", tone: "success" })
+  }
+
+  const savePostWithStatus = async (status: ContentStatusType) => {
+    const currentValues = getValues()
+    const payload = normalizePayload(
+      {
+        ...currentValues,
+        status,
+      },
+      {
+        focusKeyword: focusKeyword.trim(),
+        seoScore: seoResult?.score ?? null,
+        analysisJson: seoResult ?? null,
+      }
+    )
+
+    if (activePostId) {
+      const updated = await blogService.updatePost(activePostId, payload)
+      setPost(updated)
+      setLastAutoSaved(new Date())
+      return updated
+    }
+
+    const created = await blogService.createPost(payload)
+    setPost(created)
+    setAutoDraftPostId(created.id)
+    setLastAutoSaved(new Date())
+    router.replace(`/blog/${created.id}`)
+    return created
+  }
+
+  const togglePublishStatus = async () => {
+    const nextStatus =
+      selectedStatus === ContentStatus.PUBLISHED
+        ? ContentStatus.DRAFT
+        : ContentStatus.PUBLISHED
+
+    try {
+      setIsSaving(true)
+      setFeedback(null)
+      setValue("status", nextStatus, { shouldDirty: true })
+      await savePostWithStatus(nextStatus)
+      setFeedback({
+        message:
+          nextStatus === ContentStatus.PUBLISHED
+            ? "Bài viết đã được công khai."
+            : "Bài viết đã chuyển về nháp.",
+        tone: "success",
+      })
+    } catch (error) {
+      console.error("Failed to update publish status", error)
+      setFeedback({
+        message: "Chưa đổi được trạng thái bài viết.",
+        tone: "error",
+      })
+    } finally {
+      setIsSaving(false)
+    }
+  }
+
   const onSubmit = async (data: CreateBlogPostPayload) => {
     try {
       setIsSaving(true)
       setFeedback(null)
 
-      const payload = normalizePayload(data)
+      const payload = normalizePayload(data, {
+        focusKeyword: focusKeyword.trim(),
+        seoScore: seoResult?.score ?? null,
+        analysisJson: seoResult ?? null,
+      })
 
-      if (isNew) {
-        await blogService.createPost(payload)
-      } else if (postId) {
-        await blogService.updatePost(postId, payload)
+      const saved = activePostId
+        ? await blogService.updatePost(activePostId, payload)
+        : await blogService.createPost(payload)
+
+      setPost(saved)
+      setLastAutoSaved(new Date())
+
+      if (!activePostId) {
+        setAutoDraftPostId(saved.id)
+        router.replace(`/blog/${saved.id}`)
       }
 
-      router.push("/blog")
+      setFeedback({
+        message: "Đã lưu bài viết.",
+        tone: "success",
+      })
     } catch (error) {
       console.error("Failed to save blog post", error)
       setFeedback({
@@ -3599,6 +4966,30 @@ export default function BlogPostDetailPage() {
     } finally {
       setIsSaving(false)
     }
+  }
+
+  const handleFormKeyDown = (event: React.KeyboardEvent<HTMLFormElement>) => {
+    if (event.key !== "Enter" || event.defaultPrevented || event.nativeEvent.isComposing) {
+      return
+    }
+
+    const target = event.target as HTMLElement | null
+    if (!target) return
+
+    const tagName = target.tagName
+    const inputType = target instanceof HTMLInputElement ? target.type : ""
+    const allowsEnter =
+      tagName === "TEXTAREA" ||
+      tagName === "BUTTON" ||
+      inputType === "submit" ||
+      target.isContentEditable ||
+      Boolean(target.closest('[contenteditable="true"], .ProseMirror, [role="textbox"]'))
+
+    if (allowsEnter) {
+      return
+    }
+
+    event.preventDefault()
   }
 
   if (isLoading) {
@@ -3611,7 +5002,7 @@ export default function BlogPostDetailPage() {
   }
 
   return (
-    <form onSubmit={handleSubmit(onSubmit)} className="min-h-full ">
+    <form onSubmit={handleSubmit(onSubmit)} onKeyDown={handleFormKeyDown} className="min-h-full ">
       {feedback ? (
         <div className="fixed right-4 top-4 z-[80] w-[min(420px,calc(100vw-32px))]">
           <div
@@ -3712,13 +5103,17 @@ export default function BlogPostDetailPage() {
               type="button"
               variant="outline"
               size="sm"
-              className="gap-2 rounded-full border-orange-300 bg-orange-50 text-orange-700 hover:bg-orange-100"
-              onClick={() => {
-                setValue("status", ContentStatus.PUBLISHED, { shouldDirty: true })
-              }}
+              disabled={isSaving}
+              className={cn(
+                "gap-2 rounded-full",
+                selectedStatus === ContentStatus.PUBLISHED
+                  ? "border-green-300 bg-green-50 text-green-700 hover:bg-green-100"
+                  : "border-orange-300 bg-orange-50 text-orange-700 hover:bg-orange-100"
+              )}
+              onClick={togglePublishStatus}
             >
               <IconCheck className="size-4" />
-              Công khai
+              {selectedStatus === ContentStatus.PUBLISHED ? "Đang công khai" : "Công khai"}
             </Button>
             <Button
               type="submit"
@@ -3794,6 +5189,8 @@ export default function BlogPostDetailPage() {
                     addTocBlock,
                     moveBlock,
                     removeBlock,
+                    replaceBlock,
+                    getAiContext: getBlockAiContext,
                     reusableBlocks,
                     currentTitle: preview.title ?? "",
                     onSelectReusableBlock: (blockId) => {
@@ -3849,16 +5246,12 @@ export default function BlogPostDetailPage() {
 
             <MetaBox title="Rank Math SEO">
               <div className="space-y-4">
-                <SeoScoringPanel
-                  result={seoResult}
-                  focusKeyword={focusKeyword}
-                  onFocusKeywordChange={setFocusKeyword}
-                />
+                <SeoScoringPanel result={seoResult} />
 
                 <div className="rounded-2xl border border-stone-200 bg-white p-4 text-sm">
                   <p className="mb-2 text-xs font-medium uppercase tracking-wide text-stone-400">Xem trước kết quả tìm kiếm</p>
                   <p className="truncate text-xs text-green-700">
-                    https://dukystore.com/blog/{generatedSlug}
+                    {storefrontPath(`/blog/${generatedSlug}`)}
                   </p>
                   <p className="mt-0.5 truncate text-lg font-medium text-blue-700 hover:underline">
                     {preview.seo?.metaTitle || preview.title || "Tiêu đề SEO sẽ hiển thị ở đây"}
@@ -4024,6 +5417,223 @@ export default function BlogPostDetailPage() {
               >
                 <IconTrash />
               </Button>
+            </div>
+          </Panel>
+
+          <Panel title="Từ khóa SEO" icon={<IconSearch className="size-4" />}>
+            <div className="space-y-3">
+              <div className="flex min-h-10 flex-wrap items-center gap-1.5 rounded-xl border border-stone-300 bg-white px-3 py-2 focus-within:ring-2 focus-within:ring-green-100">
+                {seoKeywords.map((keyword, index) => {
+                  const isPrimary = index === 0
+                  return (
+                    <span
+                      key={`${keyword}-${index}`}
+                      className={cn(
+                        "inline-flex max-w-full items-center gap-1 rounded-full px-2.5 py-1 text-xs font-medium",
+                        isPrimary
+                          ? "bg-green-300 text-green-800"
+                          : "bg-orange-200/80 text-orange-700"
+                      )}
+                    >
+                      <span className="truncate">{keyword}</span>
+                      {isPrimary && (
+                        <span
+                          className={cn(
+                            "rounded-full px-1.5 py-0.5 text-[10px] uppercase bg-green-200 text-green-900"
+                          )}
+                        >
+                          {isPrimary ? "Chính" : ""}
+                        </span>
+                      )}
+                      <button
+                        type="button"
+                        onClick={() => removeSeoKeyword(index)}
+                        className={cn(
+                          "inline-flex size-4 shrink-0 items-center justify-center rounded-full",
+                          isPrimary ? "hover:bg-green-200" : "hover:bg-stone-200"
+                        )}
+                        aria-label={`Xoa tu khoa ${keyword}`}
+                      >
+                        <IconX className="size-3" />
+                      </button>
+                    </span>
+                  )
+                })}
+                <input
+                  value={seoKeywordInput}
+                  onChange={(event) => setSeoKeywordInput(event.target.value)}
+                  onKeyDown={handleSeoKeywordKeyDown}
+                  onBlur={addSeoKeyword}
+                  placeholder={seoKeywords.length ? "Thêm từ khóa phụ..." : "Nhập từ khóa chính + Enter"}
+                  className="min-w-[120px] flex-1 border-0 bg-transparent text-sm outline-none placeholder:text-stone-400"
+                />
+                <Button
+                  type="button"
+                  size="icon"
+                  variant="ghost"
+                  className="size-8 shrink-0 rounded-lg bg-orange-50 text-orange-700 ring-1 ring-orange-100 hover:bg-orange-100 hover:text-orange-800"
+                  onMouseDown={(event) => event.preventDefault()}
+                  onClick={suggestSeoKeywords}
+                  disabled={isKeywordAiLoading}
+                  aria-label="AI gợi ý từ khóa SEO"
+                  title="AI gợi ý từ khóa SEO"
+                >
+                  {isKeywordAiLoading ? (
+                    <IconLoader2 className="size-4 animate-spin" />
+                  ) : (
+                    <IconWand className="size-4" />
+                  )}
+                </Button>
+              </div>
+
+              <p className="text-xs leading-5 text-stone-500">
+                Nên có 1 từ khóa chính. Thêm 2-5 từ khóa phụ nếu bài cần mở rộng ngữ nghĩa.
+              </p>
+
+              {primaryKeywordWarning ? (
+                <div className="rounded-xl border border-amber-200 bg-amber-50 px-3 py-2 text-xs leading-5 text-amber-800">
+                  {primaryKeywordWarning}
+                </div>
+              ) : null}
+            </div>
+          </Panel>
+
+          <Panel title="Trợ lý AI" icon={<IconSeo className="size-4" />}>
+            <div className="space-y-3">
+              <div className="space-y-2">
+                <Label>Tác vụ</Label>
+                <Select value={aiTask} onValueChange={(value) => setAiTask(value as BlogAiTask)}>
+                  <SelectTrigger className="w-full rounded-xl border-stone-300 focus:ring-orange-200">
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectGroup>
+                      {(Object.keys(BLOG_AI_TASK_LABELS) as BlogAiTask[]).map((task) => (
+                        <SelectItem key={task} value={task}>
+                          {BLOG_AI_TASK_LABELS[task]}
+                        </SelectItem>
+                      ))}
+                    </SelectGroup>
+                  </SelectContent>
+                </Select>
+                <p className="text-xs leading-5 text-stone-500">{BLOG_AI_TASK_HINTS[aiTask]}</p>
+              </div>
+
+              <div className="grid gap-2">
+                <Input
+                  value={aiArticleType}
+                  onChange={(event) => setAiArticleType(event.target.value)}
+                  placeholder="Loại bài: review, hướng dẫn, so sánh..."
+                  className="h-9 rounded-xl border-stone-300 text-sm focus-visible:ring-orange-200"
+                />
+                <Input
+                  value={aiTone}
+                  onChange={(event) => setAiTone(event.target.value)}
+                  placeholder="Tone bài viết"
+                  className="h-9 rounded-xl border-stone-300 text-sm focus-visible:ring-orange-200"
+                />
+              </div>
+
+              <Button
+                type="button"
+                className="w-full gap-2 rounded-xl bg-stone-950 text-white hover:bg-stone-800"
+                onClick={runBlogAi}
+                disabled={isAiLoading}
+              >
+                {isAiLoading ? <IconLoader2 className="size-4 animate-spin" /> : <IconSeo className="size-4" />}
+                {isAiLoading ? "AI đang xử lý" : "Tạo gợi ý AI"}
+              </Button>
+
+              {aiResult ? (
+                <div className="space-y-3 rounded-2xl border border-orange-100 bg-orange-50/70 p-3 text-sm">
+                  <div className="space-y-1">
+                    <p className="font-semibold text-stone-900">Kết quả AI</p>
+                    {aiResult.summary ? (
+                      <p className="text-xs leading-5 text-stone-600">{aiResult.summary}</p>
+                    ) : null}
+                  </div>
+
+                  {aiResult.improvements?.length ? (
+                    <ul className="list-disc space-y-1 pl-4 text-xs leading-5 text-stone-700">
+                      {aiResult.improvements.slice(0, 4).map((item, index) => (
+                        <li key={`${item}-${index}`}>{item}</li>
+                      ))}
+                    </ul>
+                  ) : null}
+
+                  {aiResult.outline?.length ? (
+                    <div className="space-y-1">
+                      <p className="text-xs font-semibold uppercase text-stone-500">Dàn ý</p>
+                      <ul className="list-disc space-y-1 pl-4 text-xs leading-5 text-stone-700">
+                        {aiResult.outline.slice(0, 8).map((item, index) => (
+                          <li key={`${item}-${index}`}>{getOutlineDisplayText(item)}</li>
+                        ))}
+                      </ul>
+                    </div>
+                  ) : null}
+
+                  {aiContentHtml ? (
+                    <div className="rounded-xl border border-green-100 bg-green-50 px-3 py-2 text-xs leading-5 text-green-800">
+                      AI đã tạo bản nội dung tối ưu để thay vào bài hiện tại.
+                    </div>
+                  ) : null}
+
+                  {aiResult.internalLinks?.length ? (
+                    <div className="space-y-1">
+                      <p className="text-xs font-semibold uppercase text-stone-500">Internal link</p>
+                      {aiResult.internalLinks.slice(0, 4).map((link, index) => (
+                        <a
+                          key={`${link.url}-${index}`}
+                          href={link.url}
+                          target="_blank"
+                          rel="noreferrer"
+                          className="block rounded-lg px-2 py-1 text-xs text-stone-700 transition hover:bg-white hover:text-orange-700"
+                        >
+                          <span className="font-medium">{link.label}</span>
+                          <span className="block truncate text-stone-400">{link.url}</span>
+                        </a>
+                      ))}
+                    </div>
+                  ) : null}
+
+                  {aiResult.imageAlts?.length ? (
+                    <div className="space-y-1">
+                      <p className="text-xs font-semibold uppercase text-stone-500">Alt ảnh</p>
+                      {aiResult.imageAlts.slice(0, 3).map((image, index) => (
+                        <p key={`${image.alt}-${index}`} className="text-xs text-stone-700">
+                          {image.alt}
+                        </p>
+                      ))}
+                    </div>
+                  ) : null}
+
+                  <div className="grid grid-cols-2 gap-2">
+                    <Button
+                      type="button"
+                      size="sm"
+                      variant="outline"
+                      className="rounded-xl bg-white text-xs"
+                      onClick={() => setIsAiPreviewOpen(true)}
+                      disabled={!aiContentHtml}
+                    >
+                      Xem bài AI
+                    </Button>
+                    <Button
+                      type="button"
+                      size="sm"
+                      className="rounded-xl bg-orange-600 text-xs text-white hover:bg-orange-700"
+                      onClick={aiTask === "OUTLINE" ? appendAiContent : applyAiOptimization}
+                      disabled={
+                        aiTask === "OUTLINE"
+                          ? !aiResult.outline?.length
+                          : !aiResult.title && !aiResult.excerpt && !aiContentHtml && !aiResult.seo
+                      }
+                    >
+                      {aiTask === "OUTLINE" ? "Chèn dàn ý" : aiContentHtml ? "Tối ưu" : "Áp dụng"}
+                    </Button>
+                  </div>
+                </div>
+              ) : null}
             </div>
           </Panel>
 
@@ -4245,6 +5855,79 @@ export default function BlogPostDetailPage() {
         </DialogContent>
       </Dialog>
 
+      <Dialog open={isAiPreviewOpen} onOpenChange={setIsAiPreviewOpen}>
+        <DialogContent className="max-h-[88vh] max-w-5xl overflow-auto">
+          <DialogHeader>
+            <DialogTitle>Xem bài viết AI tạo</DialogTitle>
+            <DialogDescription>
+              Xem bản AI đề xuất trước khi áp dụng vào bài viết hiện tại.
+            </DialogDescription>
+          </DialogHeader>
+          <article className="mx-auto flex max-w-3xl flex-col gap-6">
+            {aiSelectedCoverUrl || coverUrl ? (
+              <img
+                src={aiSelectedCoverUrl || coverUrl}
+                alt={aiResult?.title || preview.title || "Ảnh đại diện bài viết"}
+                className="aspect-[16/8] w-full rounded-2xl object-cover"
+              />
+            ) : null}
+            <header className="flex flex-col gap-3">
+              <Badge variant="secondary" className="w-fit border border-orange-200 bg-orange-50 text-orange-700">
+                AI preview
+              </Badge>
+              <h2 className="text-3xl font-bold tracking-tight">
+                {aiResult?.title || preview.title || "Tiêu đề bài viết AI"}
+              </h2>
+              <p className="text-muted-foreground">
+                {aiResult?.excerpt || preview.excerpt || "Mô tả ngắn AI đề xuất sẽ hiển thị ở đây."}
+              </p>
+            </header>
+
+            <div className="rounded-2xl border bg-slate-50 p-4">
+              <p className="text-xs font-semibold uppercase text-slate-500">Google preview AI</p>
+              <p className="mt-2 text-base text-primary">
+                {aiResult?.seo?.metaTitle || aiResult?.title || preview.seo?.metaTitle || preview.title || "Meta title"}
+              </p>
+              <p className="text-sm text-slate-500">
+                {aiResult?.seo?.metaDescription || aiResult?.excerpt || preview.seo?.metaDescription || preview.excerpt || "Meta description"}
+              </p>
+              <p className="mt-1 font-mono text-xs text-slate-500">
+                /blog/{slugify(aiResult?.slug || aiResult?.title || preview.title || "bai-viet")}
+              </p>
+            </div>
+
+            <div
+              className="prose prose-sm max-w-none rounded-2xl border bg-white p-6 leading-7 [&_code]:font-semibold [&_code]:text-orange-500 [&_pre]:m-0 [&_pre]:rounded-none [&_pre]:border-0 [&_pre]:bg-transparent [&_pre]:p-0 [&_pre]:text-inherit [&_pre_code]:border-0 [&_pre_code]:bg-transparent [&_pre_code]:p-0 [&_pre_code]:font-semibold [&_pre_code]:text-orange-500"
+              dangerouslySetInnerHTML={{
+                __html: aiPreviewHtml || "<p>AI chưa tạo nội dung bài viết mới.</p>",
+              }}
+            />
+
+            <div className="sticky bottom-0 flex justify-end gap-2 border-t bg-white/95 py-3 backdrop-blur">
+              <Button
+                type="button"
+                variant="outline"
+                className="rounded-xl"
+                onClick={() => setIsAiPreviewOpen(false)}
+              >
+                Đóng
+              </Button>
+              <Button
+                type="button"
+                className="rounded-xl bg-orange-600 text-white hover:bg-orange-700"
+                onClick={() => {
+                  applyAiOptimization()
+                  setIsAiPreviewOpen(false)
+                }}
+                disabled={!aiResult?.title && !aiResult?.excerpt && !aiResult?.contentHtml && !aiResult?.seo}
+              >
+                Áp dụng bài AI
+              </Button>
+            </div>
+          </article>
+        </DialogContent>
+      </Dialog>
+
       <Dialog
         open={saveBlockDialog.open}
         onOpenChange={(open) => {
@@ -4356,17 +6039,13 @@ export default function BlogPostDetailPage() {
 
             {/* Content */}
             <div className="space-y-4 p-5">
-              <SeoScoringPanel
-                result={seoResult}
-                focusKeyword={focusKeyword}
-                onFocusKeywordChange={setFocusKeyword}
-              />
+              <SeoScoringPanel result={seoResult} />
 
               {/* Snippet Preview */}
               <div className="rounded-2xl border border-stone-200 bg-white p-4 text-sm">
                 <p className="mb-2 text-xs font-medium uppercase tracking-wide text-stone-400">Xem trước kết quả tìm kiếm</p>
                 <p className="truncate text-xs text-green-700">
-                  https://dukystore.com/blog/{generatedSlug}
+                  {storefrontPath(`/blog/${generatedSlug}`)}
                 </p>
                 <p className="mt-0.5 truncate text-lg font-medium text-blue-700 hover:underline">
                   {preview.seo?.metaTitle || preview.title || "Tiêu đề SEO sẽ hiển thị ở đây"}
@@ -4517,7 +6196,7 @@ export default function BlogPostDetailPage() {
                           <button
                             type="button"
                             onClick={() => {
-                              const link = `https://dukystore.com/blog/${suggestion.slug}`
+                              const link = storefrontPath(`/blog/${suggestion.slug}`)
                               navigator.clipboard.writeText(link)
                               setCopiedLink(link)
                               setTimeout(() => setCopiedLink(null), 3000)
@@ -4552,7 +6231,7 @@ export default function BlogPostDetailPage() {
                           <button
                             type="button"
                             onClick={() => {
-                              const link = `https://dukystore.com/san-pham/${product.slug}`
+                              const link = storefrontPath(`/products/${product.slug}`)
                               navigator.clipboard.writeText(link)
                               setCopiedLink(link)
                               setTimeout(() => setCopiedLink(null), 3000)

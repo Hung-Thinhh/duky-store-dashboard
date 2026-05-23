@@ -11,6 +11,7 @@ export type ScoreColor = 'red' | 'orange' | 'green'
 /** Input for SEO analysis */
 export interface SeoInput {
   focusKeyword: string
+  secondaryKeywords?: string[]
   seoTitle: string
   metaDescription: string
   slug: string
