@@ -153,7 +153,7 @@ function BlogCover({ post }: { post: BlogPostSummary }) {
   )
 }
 
-export default function BlogPostsPage() {
+function BlogPostsContent() {
   const router = useRouter()
   const searchParams = useSearchParams()
   const [posts, setPosts] = React.useState<BlogPostSummary[]>([])
@@ -659,5 +659,18 @@ export default function BlogPostsPage() {
         onConfirm={handleDelete}
       />
     </div>
+  )
+}
+
+export default function BlogPostsPage() {
+  return (
+    <React.Suspense fallback={
+      <div className="flex h-screen items-center justify-center gap-2">
+        <IconLoader2 className="animate-spin text-muted-foreground" />
+        <span className="text-xs text-muted-foreground">Đang tải danh sách bài viết...</span>
+      </div>
+    }>
+      <BlogPostsContent />
+    </React.Suspense>
   )
 }

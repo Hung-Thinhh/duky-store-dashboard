@@ -124,13 +124,16 @@ export default function AdminUsersPage() {
     fetchUsers()
   }, [fetchUsers])
 
+  const [formFeedback, setFormFeedback] = React.useState<{ message: string; tone: "success" | "error" } | null>(null)
+
   const handleOpenSheet = (user?: AdminUser) => {
+    setFormFeedback(null)
     if (user) {
       setEditingUser(user)
       reset({
         fullName: user.fullName,
         email: user.email,
-        password: "fake_password_for_validation_pass", // Mock because password omitted in update
+        password: "fake_password_for_validation_pass", // Mock password for validation pass
         role: user.role as any,
         isActive: user.isActive,
       })
@@ -150,19 +153,69 @@ export default function AdminUsersPage() {
   const onSubmit = async (data: CreateAdminUserPayload) => {
     try {
       setIsSaving(true)
+      setFormFeedback(null)
       if (editingUser) {
-        // await adminUserService.updateUser(editingUser.id, data)
-        console.log("Mock update", editingUser.id, data)
+        // Cập nhật thông tin profile
+        await adminUserService.updateUser(editingUser.id, {
+          fullName: data.fullName,
+          email: data.email,
+        })
+
+        // Cập nhật role nếu thay đổi
+        if (data.role && data.role !== editingUser.role) {
+          await adminUserService.assignRoles(editingUser.id, [data.role])
+        }
+
+        // Cập nhật trạng thái hoạt động nếu thay đổi
+        if (data.isActive !== editingUser.isActive) {
+          if (data.isActive) {
+            await adminUserService.unlockUser(editingUser.id)
+          } else {
+            await adminUserService.lockUser(editingUser.id)
+          }
+        }
+
+        setFormFeedback({ message: "Cập nhật tài khoản thành công!", tone: "success" })
       } else {
-        // await adminUserService.createUser(data)
-        console.log("Mock create", data)
+        // Tạo mới tài khoản thực tế qua API mới ở backend
+        await adminUserService.createUser({
+          fullName: data.fullName,
+          email: data.email,
+          password: data.password,
+          role: data.role ?? "EDITOR",
+          isActive: data.isActive,
+        })
+        setFormFeedback({ message: "Tạo tài khoản mới thành công!", tone: "success" })
       }
-      setIsSheetOpen(false)
-      fetchUsers()
-    } catch (error) {
+      
+      // Delay một chút rồi đóng Sheet để người dùng nhìn thấy feedback thành công
+      setTimeout(() => {
+        setIsSheetOpen(false)
+        fetchUsers()
+      }, 1000)
+    } catch (error: any) {
       console.error("Failed to save admin user", error)
+      const errorMessage = error?.response?.data?.message || "Lưu tài khoản thất bại. Vui lòng kiểm tra lại thông tin."
+      setFormFeedback({ message: errorMessage, tone: "error" })
     } finally {
       setIsSaving(false)
+    }
+  }
+
+  const handleDeleteUser = async (id: string, name: string) => {
+    if (confirm(`Bạn có chắc chắn muốn xóa tài khoản "${name}" không?`)) {
+      try {
+        setIsLoading(true)
+        await adminUserService.deleteUser(id)
+        alert("Đã xóa tài khoản thành công.")
+        fetchUsers()
+      } catch (error: any) {
+        console.error("Failed to delete user", error)
+        const errorMessage = error?.response?.data?.message || "Xóa tài khoản thất bại."
+        alert(errorMessage)
+      } finally {
+        setIsLoading(false)
+      }
     }
   }
 
@@ -270,7 +323,10 @@ export default function AdminUsersPage() {
                           <IconEdit className="mr-2 size-4" /> Sửa
                         </DropdownMenuItem>
                         {user.role !== "SUPER_ADMIN" && (
-                          <DropdownMenuItem className="rounded-lg cursor-pointer text-destructive focus:bg-destructive/10 focus:text-destructive">
+                          <DropdownMenuItem 
+                            onClick={() => handleDeleteUser(user.id, user.fullName)}
+                            className="rounded-lg cursor-pointer text-destructive focus:bg-destructive/10 focus:text-destructive"
+                          >
                             <IconTrash className="mr-2 size-4" /> Xóa
                           </DropdownMenuItem>
                         )}
@@ -297,6 +353,11 @@ export default function AdminUsersPage() {
             </SheetHeader>
 
             <div className="flex-1 p-6 flex flex-col gap-5 overflow-y-auto">
+              {formFeedback && (
+                <div className={`p-3 rounded-xl text-xs font-medium border ${formFeedback.tone === 'success' ? 'bg-emerald-50 text-emerald-700 border-emerald-200' : 'bg-rose-50 text-rose-700 border-rose-200'}`}>
+                  {formFeedback.message}
+                </div>
+              )}
               <div className="space-y-2">
                 <Label htmlFor="fullName">Họ tên *</Label>
                 <Input id="fullName" {...register("fullName")} className="rounded-xl" />

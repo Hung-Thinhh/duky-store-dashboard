@@ -25,4 +25,19 @@ export const adminUserService = {
     const response = await apiClient.delete(`/admin/users/${id}`);
     return response;
   },
+
+  async assignRoles(id: string, roleNames: string[]) {
+    const response = await apiClient.patch(`/admin/users/${id}/roles`, { roleNames });
+    return response.DT;
+  },
+
+  async lockUser(id: string) {
+    const response = await apiClient.patch(`/admin/users/${id}/lock`);
+    return response.DT;
+  },
+
+  async unlockUser(id: string) {
+    const response = await apiClient.patch(`/admin/users/${id}/unlock`);
+    return response.DT;
+  },
 };

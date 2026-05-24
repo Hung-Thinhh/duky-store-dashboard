@@ -37,7 +37,7 @@ import { mediaService } from "@/lib/api/services/media.service"
 
 const MEDIA_PAGE_SIZE = 20
 
-export default function MediaPage() {
+function MediaContent() {
   const router = useRouter()
   const searchParams = useSearchParams()
   const pageFromUrl = Math.max(1, Number(searchParams.get("page") ?? "1") || 1)
@@ -962,5 +962,18 @@ export default function MediaPage() {
         onUploaded={handleUploaded}
       />
     </div>
+  )
+}
+
+export default function MediaPage() {
+  return (
+    <React.Suspense fallback={
+      <div className="flex h-screen items-center justify-center gap-2">
+        <span className="animate-spin text-lg">⏳</span>
+        <span className="text-xs text-muted-foreground">Đang tải thư viện media...</span>
+      </div>
+    }>
+      <MediaContent />
+    </React.Suspense>
   )
 }
