@@ -3277,6 +3277,7 @@ function BlogRichTextEditor({
   const [isHtmlDraftDirty, setIsHtmlDraftDirty] = React.useState(false)
   const htmlTextareaRef = React.useRef<HTMLTextAreaElement | null>(null)
   const isSelfUpdatingRef = React.useRef(false)
+  const selfUpdateTimeoutRef = React.useRef<any | null>(null)
   const lastSelectionRef = React.useRef<{ from: number; to: number } | null>(null)
   const [isImageLibraryOpen, setIsImageLibraryOpen] = React.useState(false)
   const [imageActionMode, setImageActionMode] = React.useState<"insert" | "replace">("insert")
@@ -3368,6 +3369,15 @@ function BlogRichTextEditor({
     onUpdate({ editor: currentEditor }) {
       const nextHtml = currentEditor.getHTML()
       isSelfUpdatingRef.current = true
+      
+      if (selfUpdateTimeoutRef.current) {
+        clearTimeout(selfUpdateTimeoutRef.current)
+      }
+      
+      selfUpdateTimeoutRef.current = setTimeout(() => {
+        isSelfUpdatingRef.current = false
+      }, 150)
+
       onChange(nextHtml)
     },
     onSelectionUpdate({ editor: currentEditor }) {
@@ -3379,6 +3389,14 @@ function BlogRichTextEditor({
       }
     },
   })
+
+  React.useEffect(() => {
+    return () => {
+      if (selfUpdateTimeoutRef.current) {
+        clearTimeout(selfUpdateTimeoutRef.current)
+      }
+    }
+  }, [])
 
   React.useEffect(() => {
     if (!editor) return
@@ -3461,9 +3479,8 @@ function BlogRichTextEditor({
   React.useEffect(() => {
     if (!editor || editor.isDestroyed) return
 
-    // Nếu thay đổi xuất phát từ chính editor, ta bỏ qua hoàn toàn việc setContent
+    // Nếu thay đổi xuất phát từ chính editor (trong vòng 150ms), ta bỏ qua hoàn toàn việc setContent
     if (isSelfUpdatingRef.current) {
-      isSelfUpdatingRef.current = false
       return
     }
 
@@ -3472,7 +3489,7 @@ function BlogRichTextEditor({
 
     if (currentHtml !== nextHtml) {
       queueMicrotask(() => {
-        if (!editor.isDestroyed) {
+        if (!editor.isDestroyed && !isSelfUpdatingRef.current) {
           editor.commands.setContent(stripFigcaptionTags(value ?? ""), { emitUpdate: false })
         }
       })
