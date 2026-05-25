@@ -18,7 +18,7 @@ import {
   IconTrash,
   IconUpload,
 } from "@tabler/icons-react"
-
+import { usePermissions } from "@/hooks/usePermissions"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import { Checkbox } from "@/components/ui/checkbox"
@@ -228,6 +228,7 @@ function ProductImageCell({
 }
 
 export default function ProductsPage() {
+  const { hasPermission } = usePermissions()
   const [products, setProducts] = React.useState<ProductListItem[]>([])
   const [categories, setCategories] = React.useState<Category[]>([])
   const [pagination, setPagination] = React.useState({
@@ -725,14 +726,16 @@ export default function ProductsPage() {
             className="hidden"
             onChange={importCsv}
           />
-          <Button
-            variant="outline"
-            onClick={() => importInputRef.current?.click()}
-            disabled={isBulkLoading}
-          >
-            <IconUpload data-icon="inline-start" />
-            Nhập CSV
-          </Button>
+          {hasPermission('products.create') && (
+            <Button
+              variant="outline"
+              onClick={() => importInputRef.current?.click()}
+              disabled={isBulkLoading}
+            >
+              <IconUpload data-icon="inline-start" />
+              Nhập CSV
+            </Button>
+          )}
           <Button
             variant="outline"
             onClick={exportCsv}
@@ -749,12 +752,14 @@ export default function ProductsPage() {
             <IconDownload data-icon="inline-start" />
             Woo CSV
           </Button>
-          <Button asChild>
-            <Link href="/products/new">
-              <IconPlus data-icon="inline-start" />
-              Thêm sản phẩm
-            </Link>
-          </Button>
+          {hasPermission('products.create') && (
+            <Button asChild>
+              <Link href="/products/new">
+                <IconPlus data-icon="inline-start" />
+                Thêm sản phẩm
+              </Link>
+            </Button>
+          )}
         </div>
       </div>
 
@@ -1115,28 +1120,32 @@ export default function ProductsPage() {
                             </Button>
                           </DropdownMenuTrigger>
                           <DropdownMenuContent align="end" className="w-44">
-                            <DropdownMenuItem asChild>
-                              <Link href={`/products/${product.id}`}>
-                                <IconEdit data-icon="inline-start" />
-                                Sửa
-                              </Link>
-                            </DropdownMenuItem>
+                            {hasPermission('products.update') && (
+                              <DropdownMenuItem asChild>
+                                <Link href={`/products/${product.id}`}>
+                                  <IconEdit data-icon="inline-start" />
+                                  Sửa
+                                </Link>
+                              </DropdownMenuItem>
+                            )}
                             <DropdownMenuItem asChild>
                               <Link href={`/products/${product.id}`}>
                                 <IconEye data-icon="inline-start" />
                                 Xem chi tiết
                               </Link>
                             </DropdownMenuItem>
-                            <DropdownMenuItem
-                              className="text-destructive focus:text-destructive"
-                              onClick={() => {
-                                setSelectedIds([product.id])
-                                setBulkAction("delete")
-                              }}
-                            >
-                              <IconTrash data-icon="inline-start" />
-                              Xóa
-                            </DropdownMenuItem>
+                            {hasPermission('products.delete') && (
+                              <DropdownMenuItem
+                                className="text-destructive focus:text-destructive"
+                                onClick={() => {
+                                  setSelectedIds([product.id])
+                                  setBulkAction("delete")
+                                }}
+                              >
+                                <IconTrash data-icon="inline-start" />
+                                Xóa
+                              </DropdownMenuItem>
+                            )}
                           </DropdownMenuContent>
                         </DropdownMenu>
                       </TableCell>

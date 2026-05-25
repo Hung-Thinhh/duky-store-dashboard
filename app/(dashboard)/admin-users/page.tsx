@@ -48,8 +48,9 @@ import { AdminUser, CreateAdminUserPayloadSchema, CreateAdminUserPayload, AdminU
 const roleConfig: Record<string, { color: string; label: string }> = {
   [AdminUserRole.SUPER_ADMIN]: { color: "bg-purple-100 text-purple-700", label: "Toàn quyền" },
   [AdminUserRole.ADMIN]: { color: "bg-blue-100 text-blue-700", label: "Quản trị" },
-  [AdminUserRole.EDITOR]: { color: "bg-emerald-100 text-emerald-700", label: "Biên tập" },
-  [AdminUserRole.CUSTOMER_SUPPORT]: { color: "bg-amber-100 text-amber-700", label: "CSKH" },
+  [AdminUserRole.CONTENT_EDITOR]: { color: "bg-emerald-100 text-emerald-700", label: "Biên tập viên" },
+  [AdminUserRole.ORDER_MANAGER]: { color: "bg-orange-100 text-orange-700", label: "Quản lý đơn" },
+  [AdminUserRole.STAFF]: { color: "bg-amber-100 text-amber-700", label: "Nhân viên" },
 }
 
 const mockUsers: AdminUser[] = [
@@ -66,7 +67,7 @@ const mockUsers: AdminUser[] = [
     id: "adm_2",
     fullName: "Lê Minh Tuấn",
     email: "tuan.le@dukystore.vn",
-    role: "EDITOR",
+    role: "CONTENT_EDITOR",
     isActive: true,
     lastLoginAt: "2026-05-09T14:30:00Z",
     createdAt: "2026-02-15T00:00:00Z",
@@ -75,7 +76,7 @@ const mockUsers: AdminUser[] = [
     id: "adm_3",
     fullName: "Phạm Thị Lan",
     email: "lan.pham@dukystore.vn",
-    role: "CUSTOMER_SUPPORT",
+    role: "STAFF",
     isActive: false,
     createdAt: "2026-04-10T00:00:00Z",
   }
@@ -102,7 +103,7 @@ export default function AdminUsersPage() {
       fullName: "",
       email: "",
       password: "",
-      role: "EDITOR",
+      role: "CONTENT_EDITOR",
       isActive: true,
     },
   })
@@ -143,7 +144,7 @@ export default function AdminUsersPage() {
         fullName: "",
         email: "",
         password: "",
-        role: "EDITOR",
+        role: "CONTENT_EDITOR",
         isActive: true,
       })
     }
@@ -182,7 +183,7 @@ export default function AdminUsersPage() {
           fullName: data.fullName,
           email: data.email,
           password: data.password,
-          role: data.role ?? "EDITOR",
+          role: data.role ?? "CONTENT_EDITOR",
           isActive: data.isActive,
         })
         setFormFeedback({ message: "Tạo tài khoản mới thành công!", tone: "success" })
@@ -294,10 +295,10 @@ export default function AdminUsersPage() {
                   <TableCell>
                     <Badge 
                       variant="secondary" 
-                      className={(roleConfig[user.role ?? "EDITOR"]?.color ?? "") + " border-transparent rounded-md gap-1"}
+                      className={(roleConfig[user.role ?? "CONTENT_EDITOR"]?.color ?? "") + " border-transparent rounded-md gap-1"}
                     >
                       <IconShield className="size-3" />
-                      {roleConfig[user.role ?? "EDITOR"]?.label || user.role}
+                      {roleConfig[user.role ?? "CONTENT_EDITOR"]?.label || user.role}
                     </Badge>
                   </TableCell>
                   <TableCell>
@@ -391,8 +392,9 @@ export default function AdminUsersPage() {
                       </SelectTrigger>
                       <SelectContent className="rounded-xl">
                         <SelectItem value={AdminUserRole.ADMIN}>Quản trị</SelectItem>
-                        <SelectItem value={AdminUserRole.EDITOR}>Biên tập</SelectItem>
-                        <SelectItem value={AdminUserRole.CUSTOMER_SUPPORT}>Chăm sóc khách hàng</SelectItem>
+                        <SelectItem value={AdminUserRole.ORDER_MANAGER}>Quản lý đơn hàng</SelectItem>
+                        <SelectItem value={AdminUserRole.CONTENT_EDITOR}>Biên tập viên</SelectItem>
+                        <SelectItem value={AdminUserRole.STAFF}>Nhân viên</SelectItem>
                       </SelectContent>
                     </Select>
                   )}

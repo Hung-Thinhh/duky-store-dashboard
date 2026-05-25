@@ -622,7 +622,7 @@ function minifyHtmlForEditorDraft(html: string) {
 }
 
 function splitContentToBlocks(content?: string | null) {
-  const raw = (content ?? "").trim()
+  const raw = flattenNestedBlockWrappers((content ?? "").trim())
   if (!raw) return []
 
   const bySeparator = raw
@@ -1966,19 +1966,199 @@ function unwrapBlockHtml(blockHtml: string) {
   return stripLegacyBlockLabel(raw)
 }
 
-function flattenNestedBlockWrappers(html: string) {
+function stripFigcaptionTags(html: string): string {
   let next = html.trim()
-  const nestedPattern =
-    /<blockquote[^>]*>\s*<p>\s*<strong>\s*block[^<]*<\/strong>\s*<\/p>\s*(<blockquote[^>]*>[\s\S]*<\/blockquote>)\s*<\/blockquote>/i
+  if (!next) return ""
+  // Loại bỏ tất cả các thẻ <figcaption>...</figcaption> bao gồm cả nội dung của chúng
+  return next.replace(/<figcaption\b[^>]*>[\s\S]*?<\/figcaption>/gi, "")
+}
 
-  while (nestedPattern.test(next)) {
-    next = next.replace(nestedPattern, "$1").trim()
+function removeVietnameseTones(str: string): string {
+  return str
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .replace(/đ/g, "d")
+    .replace(/Đ/g, "D")
+}
+
+function cleanDuplicateCaptions(html: string): string {
+  let next = html.trim()
+  if (!next) return ""
+
+  if (typeof window === "undefined") {
+    return next
   }
 
-  // Cleanup legacy action text rows accidentally persisted in old block markup.
-  next = stripLegacyBlockLabel(next.replace(/<p>\s*[↑↓×\s]+\s*<\/p>/gi, ""))
+  try {
+    const parser = new DOMParser()
+    const doc = parser.parseFromString(`<div>${next}</div>`, "text/html")
+    const root = doc.body.firstChild as HTMLElement
+    if (!root) return next
 
-  return next
+    const captions = new Set<string>()
+
+    const figures = root.querySelectorAll("figure")
+    figures.forEach((fig) => {
+      const dataCaption = fig.getAttribute("data-caption")?.trim()
+      if (dataCaption) captions.add(dataCaption)
+
+      const figcaption = fig.querySelector("figcaption")?.textContent?.trim()
+      if (figcaption) captions.add(figcaption)
+    })
+
+    const imgs = root.querySelectorAll("img")
+    imgs.forEach((img) => {
+      const dataCaption = img.getAttribute("data-caption")?.trim()
+      if (dataCaption) captions.add(dataCaption)
+    })
+
+    if (captions.size === 0) {
+      return next
+    }
+
+    const paragraphs = root.querySelectorAll("p")
+    paragraphs.forEach((p) => {
+      if (p.closest("figure")) return
+
+      const text = p.textContent?.trim() || ""
+      if (!text) return
+
+      let isMatch = false
+      const normText = removeVietnameseTones(text.toLowerCase())
+        .replace(/[^a-z0-9]/g, "")
+        .replace(/nbsp/g, "")
+
+      if (!normText) return
+
+      for (const cap of captions) {
+        const normCap = removeVietnameseTones(cap.toLowerCase())
+          .replace(/[^a-z0-9]/g, "")
+          .replace(/nbsp/g, "")
+
+        if (!normCap) continue
+
+        const prefixText = normText.slice(0, 15)
+        const prefixCap = normCap.slice(0, 15)
+
+        if (
+          normText === normCap ||
+          (prefixText.length >= 10 && prefixText === prefixCap) ||
+          normText.includes(normCap) ||
+          normCap.includes(normText)
+        ) {
+          isMatch = true
+          break
+        }
+      }
+
+      if (isMatch) {
+        p.remove()
+      }
+    })
+
+    return root.innerHTML.trim()
+  } catch (error) {
+    console.error("Error cleaning duplicate captions in DOMParser:", error)
+    return next
+  }
+}
+
+function flattenNestedBlockWrappers(html: string): string {
+  let next = html.trim()
+  if (!next) return ""
+
+  if (typeof window === "undefined") {
+    // Môi trường Server-side (SSR), ta trả về chuỗi nguyên bản để tránh lỗi DOMParser không tồn tại
+    return next
+  }
+
+  try {
+    const parser = new DOMParser()
+    const doc = parser.parseFromString(`<div>${next}</div>`, "text/html")
+    const root = doc.body.firstChild as HTMLElement
+    if (!root) return next
+
+    let hasNested = true
+    let safetyCounter = 0
+
+    while (hasNested && safetyCounter < 100) {
+      safetyCounter++
+      const nestedChild = root.querySelector("[data-duky-block] [data-duky-block]") as HTMLElement
+      if (!nestedChild) {
+        hasNested = false
+        break
+      }
+
+      const parent = nestedChild.parentElement
+      if (!parent) {
+        hasNested = false
+        break
+      }
+
+      const parentCloneBefore = parent.cloneNode(false) as HTMLElement
+      const parentCloneAfter = parent.cloneNode(false) as HTMLElement
+      
+      let isBefore = true
+      const childNodes = Array.from(parent.childNodes)
+      
+      for (const node of childNodes) {
+        if (node === nestedChild) {
+          isBefore = false
+          continue
+        }
+        if (isBefore) {
+          parentCloneBefore.appendChild(node.cloneNode(true))
+        } else {
+          parentCloneAfter.appendChild(node.cloneNode(true))
+        }
+      }
+
+      const parentNode = parent.parentNode
+      if (parentNode) {
+        if (parentCloneBefore.innerHTML.trim()) {
+          parentNode.insertBefore(parentCloneBefore, parent)
+        }
+        
+        parentNode.insertBefore(nestedChild.cloneNode(true), parent)
+        
+        if (parentCloneAfter.innerHTML.trim()) {
+          parentNode.insertBefore(parentCloneAfter, parent)
+        }
+        
+        parentNode.removeChild(parent)
+      }
+    }
+
+    let hasNestedAny = true
+    let safetyCounterAny = 0
+    while (hasNestedAny && safetyCounterAny < 100) {
+      safetyCounterAny++
+      const nestedChild = root.querySelector("blockquote blockquote") as HTMLElement
+      if (!nestedChild) {
+        hasNestedAny = false
+        break
+      }
+
+      const parent = nestedChild.parentElement
+      if (!parent) {
+        hasNestedAny = false
+        break
+      }
+
+      const parentNode = parent.parentNode
+      if (parentNode) {
+        parentNode.insertBefore(nestedChild.cloneNode(true), parent)
+        parentNode.removeChild(parent)
+      }
+    }
+
+    let result = root.innerHTML.trim()
+    result = stripLegacyBlockLabel(result.replace(/<p>\s*[↑↓×\s]+\s*<\/p>/gi, ""))
+    return result
+  } catch (error) {
+    console.error("Error flattening blocks in DOMParser:", error)
+    return next
+  }
 }
 
 function isBlockWrapperHtml(html: string) {
@@ -2196,25 +2376,73 @@ function decorateBlogHtmlForPublish(html: string) {
   return next
 }
 
+function injectFigcaptions(html: string): string {
+  let next = html.trim()
+  if (!next) return ""
+
+  if (typeof window === "undefined") {
+    return next.replace(/<figure\b([^>]*data-caption=(["'])(.*?)\2[^>]*)>([\s\S]*?)<\/figure>/gi, (match, attrs, quote, caption, inner) => {
+      const trimmedCaption = caption.trim()
+      if (trimmedCaption && !inner.includes("<figcaption")) {
+        const escapedCaption = trimmedCaption.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;")
+        const figHtml = `<figcaption class="duky-blog-image-caption" style="margin-top:10px;text-align:center;font-size:14px;line-height:1.6;color:#6b7280;font-style:italic;">${escapedCaption}</figcaption>`
+        return `<figure${attrs}>${inner}${figHtml}</figure>`
+      }
+      return match
+    })
+  }
+
+  try {
+    const parser = new DOMParser()
+    const doc = parser.parseFromString(`<div>${next}</div>`, "text/html")
+    const root = doc.body.firstChild as HTMLElement
+    if (!root) return next
+
+    const figures = root.querySelectorAll("figure")
+    figures.forEach((fig) => {
+      const caption = fig.getAttribute("data-caption")?.trim()
+      if (!caption) return
+      
+      let figcaption = fig.querySelector("figcaption")
+      if (!figcaption) {
+        figcaption = doc.createElement("figcaption")
+        figcaption.className = "duky-blog-image-caption"
+        figcaption.setAttribute("style", "margin-top:10px;text-align:center;font-size:14px;line-height:1.6;color:#6b7280;font-style:italic;")
+        fig.appendChild(figcaption)
+      }
+      figcaption.textContent = caption
+    })
+
+    return root.innerHTML.trim()
+  } catch (error) {
+    console.error("Error injecting figcaptions:", error)
+    return next
+  }
+}
+
 function toPublishableBlogHtml(content?: string | null) {
-  return decorateBlogHtmlForPublish(stripBlockWrappersForHtml(content))
+  const cleanHtml = stripFigcaptionTags(content ?? "")
+  const publishedHtml = injectFigcaptions(stripBlockWrappersForHtml(cleanHtml))
+  return cleanDuplicateCaptions(decorateBlogHtmlForPublish(publishedHtml))
 }
 
 function toHtmlDraftFromContent(content?: string | null) {
-  const blocks = splitContentToBlocks(content)
+  const cleanedContent = stripFigcaptionTags(content ?? "")
+  const blocks = splitContentToBlocks(cleanedContent)
   if (blocks.length <= 1) {
     const singleHtml = blocks.length === 1 ? unwrapBlockHtml(blocks[0]) : ""
-    return prettyHtmlForEditor(decorateBlogHtmlForPublish(singleHtml))
+    return prettyHtmlForEditor(cleanDuplicateCaptions(singleHtml))
   }
   const formattedBlocks = blocks.map((block) => {
     const unwrapped = unwrapBlockHtml(block)
-    return prettyHtmlForEditor(decorateBlogHtmlForPublish(unwrapped))
+    return prettyHtmlForEditor(cleanDuplicateCaptions(unwrapped))
   })
   return formattedBlocks.filter(Boolean).join(`\n${CONTENT_BLOCK_SEPARATOR}\n`)
 }
 
 function toContentFromHtmlDraft(htmlDraft: string) {
-  const rawBlocks = htmlDraft
+  const cleaned = stripFigcaptionTags(cleanDuplicateCaptions(htmlDraft))
+  const rawBlocks = cleaned
     .split(CONTENT_BLOCK_SEPARATOR)
     .map((block) => block.trim())
     .filter(Boolean)
@@ -3048,6 +3276,8 @@ function BlogRichTextEditor({
   const [htmlDraft, setHtmlDraft] = React.useState(toHtmlDraftFromContent(value ?? ""))
   const [isHtmlDraftDirty, setIsHtmlDraftDirty] = React.useState(false)
   const htmlTextareaRef = React.useRef<HTMLTextAreaElement | null>(null)
+  const isSelfUpdatingRef = React.useRef(false)
+  const lastSelectionRef = React.useRef<{ from: number; to: number } | null>(null)
   const [isImageLibraryOpen, setIsImageLibraryOpen] = React.useState(false)
   const [imageActionMode, setImageActionMode] = React.useState<"insert" | "replace">("insert")
   const [imagePickerInitialUrl, setImagePickerInitialUrl] = React.useState<string | null>(null)
@@ -3128,7 +3358,7 @@ function BlogRichTextEditor({
         placeholder: "Bắt ���ầu viết n���i dung bҠi viết...",
       }),
     ],
-    content: value ?? "",
+    content: stripFigcaptionTags(value ?? ""),
     editorProps: {
       attributes: {
         class:
@@ -3137,9 +3367,16 @@ function BlogRichTextEditor({
     },
     onUpdate({ editor: currentEditor }) {
       const nextHtml = currentEditor.getHTML()
-      setHtmlDraft(toHtmlDraftFromContent(nextHtml))
-      setIsHtmlDraftDirty(false)
+      isSelfUpdatingRef.current = true
       onChange(nextHtml)
+    },
+    onSelectionUpdate({ editor: currentEditor }) {
+      if (currentEditor.isFocused) {
+        lastSelectionRef.current = {
+          from: currentEditor.state.selection.from,
+          to: currentEditor.state.selection.to,
+        }
+      }
     },
   })
 
@@ -3174,6 +3411,12 @@ function BlogRichTextEditor({
       description?: string | null
     }, options?: { replaceCurrent?: boolean }) => {
       if (!editor || !image.url.trim()) return
+
+      // Khôi phục lại vị trí con trỏ đã lưu trước khi Dialog chọn ảnh làm mất focus
+      if (lastSelectionRef.current) {
+        editor.commands.setTextSelection(lastSelectionRef.current)
+      }
+
       const shouldReplace = options?.replaceCurrent && editor.isActive("image")
       if (shouldReplace) {
         const oldCaption = getActiveImageCaption(editor)
@@ -3216,24 +3459,31 @@ function BlogRichTextEditor({
   )
 
   React.useEffect(() => {
-    if (!editor) return
-    const currentHtml = editor.getHTML()
-    const nextHtml = value ?? ""
+    if (!editor || editor.isDestroyed) return
+
+    // Nếu thay đổi xuất phát từ chính editor, ta bỏ qua hoàn toàn việc setContent
+    if (isSelfUpdatingRef.current) {
+      isSelfUpdatingRef.current = false
+      return
+    }
+
+    const currentHtml = stripFigcaptionTags(editor.getHTML())
+    const nextHtml = stripFigcaptionTags(value ?? "")
 
     if (currentHtml !== nextHtml) {
       queueMicrotask(() => {
         if (!editor.isDestroyed) {
-          editor.commands.setContent(nextHtml, { emitUpdate: false })
+          editor.commands.setContent(stripFigcaptionTags(value ?? ""), { emitUpdate: false })
         }
       })
     }
-    setHtmlDraft(toHtmlDraftFromContent(nextHtml))
+    setHtmlDraft(toHtmlDraftFromContent(value ?? ""))
     setIsHtmlDraftDirty(false)
   }, [editor, value])
 
   const applyHtmlToVisualEditor = React.useCallback(() => {
     if (!editor || !isHtmlDraftDirty) return
-    const nextContent = toContentFromHtmlDraft(htmlDraft)
+    const nextContent = stripFigcaptionTags(toContentFromHtmlDraft(htmlDraft))
     editor.commands.setContent(nextContent)
     onChange(nextContent)
     setHtmlDraft(toHtmlDraftFromContent(nextContent))

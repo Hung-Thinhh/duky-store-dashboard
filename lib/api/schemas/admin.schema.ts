@@ -4,8 +4,9 @@ import { createPaginatedResponseSchema, createResponseSchema } from "./base.sche
 export const AdminUserRole = {
   SUPER_ADMIN: "SUPER_ADMIN",
   ADMIN: "ADMIN",
-  EDITOR: "EDITOR",
-  CUSTOMER_SUPPORT: "CUSTOMER_SUPPORT",
+  CONTENT_EDITOR: "CONTENT_EDITOR",
+  ORDER_MANAGER: "ORDER_MANAGER",
+  STAFF: "STAFF",
 } as const
 
 export const AdminUserSchema = z.object({
@@ -14,7 +15,7 @@ export const AdminUserSchema = z.object({
   email: z.string().email("Email không hợp lệ"),
   phone: z.string().optional().nullable(),
   status: z.string().optional(),
-  role: z.nativeEnum(AdminUserRole).default("EDITOR"),
+  role: z.nativeEnum(AdminUserRole).default("CONTENT_EDITOR"),
   roles: z.array(z.object({
     id: z.string(),
     name: z.string(),
@@ -34,7 +35,7 @@ export const CreateAdminUserPayloadSchema = z.object({
   fullName: z.string().min(1, "Họ tên là bắt buộc"),
   email: z.string().email("Email không hợp lệ"),
   password: z.string().min(6, "Mật khẩu tối thiểu 6 ký tự"),
-  role: z.nativeEnum(AdminUserRole).default("EDITOR"),
+  role: z.nativeEnum(AdminUserRole).default("CONTENT_EDITOR"),
   isActive: z.boolean().default(true),
 })
 
