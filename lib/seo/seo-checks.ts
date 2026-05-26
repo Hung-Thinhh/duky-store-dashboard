@@ -12,12 +12,12 @@ import {
 // ─── Utility Functions ───────────────────────────────────────────────────────
 
 /**
- * Check if text contains keyword (case-insensitive, whole phrase match).
+ * Check if text contains keyword (case-insensitive, whole phrase match, Vietnamese NFC normalized).
  */
 export function containsKeyword(text: string, keyword: string): boolean {
   if (!keyword.trim()) return false
-  const normalizedText = text.toLowerCase()
-  const normalizedKeyword = keyword.toLowerCase().trim()
+  const normalizedText = text.normalize('NFC').toLowerCase()
+  const normalizedKeyword = keyword.normalize('NFC').toLowerCase().trim()
   return normalizedText.includes(normalizedKeyword)
 }
 
@@ -32,12 +32,12 @@ function countMatchedKeywords(text: string, keywords: string[]): number {
 }
 
 /**
- * Count non-overlapping occurrences of keyword in text (case-insensitive).
+ * Count non-overlapping occurrences of keyword in text (case-insensitive, Vietnamese NFC normalized).
  */
 export function countKeywordOccurrences(text: string, keyword: string): number {
   if (!keyword.trim()) return 0
-  const normalizedText = text.toLowerCase()
-  const normalizedKeyword = keyword.toLowerCase().trim()
+  const normalizedText = text.normalize('NFC').toLowerCase()
+  const normalizedKeyword = keyword.normalize('NFC').toLowerCase().trim()
   let count = 0
   let pos = 0
   while ((pos = normalizedText.indexOf(normalizedKeyword, pos)) !== -1) {
@@ -48,13 +48,29 @@ export function countKeywordOccurrences(text: string, keyword: string): number {
 }
 
 /**
- * Calculate keyword density: (occurrences / totalWords) × 100.
+ * Helper to convert text to a clean URL slug.
+ */
+export function toSlug(text: string): string {
+  return text
+    .toLowerCase()
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '') // Loai bo dau tieng Viet
+    .replace(/[đĐ]/g, 'd')
+    .replace(/[^a-z0-9\s-]/g, '')    // Loai bo ky tu dac biet
+    .trim()
+    .replace(/\s+/g, '-')            // Thay the khoang trang bang dau gach ngang
+    .replace(/-+/g, '-')             // Tranh nhieu dau gach ngang lien nhau
+}
+
+/**
+ * Calculate keyword density: (occurrences * keywordWordCount / totalWords) × 100.
  */
 export function calculateKeywordDensity(text: string, keyword: string): number {
   const words = text.split(/\s+/).filter(Boolean)
-  if (words.length === 0) return 0
+  if (words.length === 0 || !keyword.trim()) return 0
   const occurrences = countKeywordOccurrences(text, keyword)
-  return (occurrences / words.length) * 100
+  const keywordWordCount = keyword.split(/\s+/).filter(Boolean).length
+  return (occurrences * keywordWordCount / words.length) * 100
 }
 
 /**
@@ -106,13 +122,17 @@ export function checkKeywordInMetaDescription(input: SeoInput): SeoCheckResult {
 }
 
 /**
- * Check: Focus keyword appears in URL slug.
+ * Check: Focus keyword appears in URL slug (normalized Vietnamese tone & special chars comparison).
  */
 export function checkKeywordInUrl(input: SeoInput): SeoCheckResult {
+  const normalizedSlug = toSlug(input.slug)
+  const keywordSlug = toSlug(input.focusKeyword)
+  const passed = keywordSlug ? normalizedSlug.includes(keywordSlug) || normalizedSlug.replace(/-/g, '').includes(keywordSlug.replace(/-/g, '')) : false
+
   return {
     id: 'keyword-in-slug',
     label: 'Focus keyword trong URL slug',
-    passed: containsKeyword(input.slug, input.focusKeyword),
+    passed,
     category: 'basic',
     description: 'URL slug nên chứa focus keyword.',
   }
@@ -181,12 +201,16 @@ export function checkKeywordInSubheadings(input: SeoInput): SeoCheckResult {
  */
 export function checkKeywordInImageAlt(input: SeoInput): SeoCheckResult {
   const images = extractImages(input.htmlContent)
+  const hasImages = images.length > 0
+  const passed = hasImages && images.some((img) => containsKeyword(img.alt, input.focusKeyword))
   return {
     id: 'keyword-in-image-alt',
     label: 'Focus keyword trong alt text ảnh',
-    passed: images.some((img) => containsKeyword(img.alt, input.focusKeyword)),
+    passed,
     category: 'additional',
-    description: 'Focus keyword nên xuất hiện trong alt text của ít nhất một ảnh.',
+    description: hasImages 
+      ? 'Focus keyword nên xuất hiện trong alt text của ít nhất một ảnh.' 
+      : 'Bài viết chưa có hình ảnh. Hãy thêm ảnh và tối ưu alt text chứa focus keyword.',
   }
 }
 
@@ -196,12 +220,18 @@ export function checkKeywordInImageAlt(input: SeoInput): SeoCheckResult {
 export function checkKeywordDensity(input: SeoInput): SeoCheckResult {
   const text = extractTextContent(input.htmlContent)
   const density = calculateKeywordDensity(text, input.focusKeyword)
+  const passed = density >= 1.0 && density <= 2.5
+  let msg = `Mật độ từ khóa hiện tại: ${density.toFixed(1)}%.`
+  if (density < 1.0) msg += ' Hãy bổ sung thêm từ khóa một cách tự nhiên.'
+  else if (density > 2.5) msg += ' Hãy giảm tần suất xuất hiện để tránh spam từ khóa.'
+  else msg += ' Đây là mật độ lý tưởng.'
+
   return {
     id: 'keyword-density',
     label: `Keyword density (${density.toFixed(1)}%) trong khoảng 1-2.5%`,
-    passed: density >= 1.0 && density <= 2.5,
+    passed,
     category: 'additional',
-    description: `Keyword density hiện tại: ${density.toFixed(1)}%. Nên nằm trong khoảng 1-2.5%.`,
+    description: msg,
   }
 }
 
@@ -254,13 +284,13 @@ export function checkSecondaryKeywordsInContent(input: SeoInput): SeoCheckResult
 
   return {
     id: 'secondary-keywords-in-content',
-    label: 'Tu khoa phu xuat hien tu nhien trong noi dung',
+    label: 'Từ khóa phụ xuất hiện tự nhiên trong nội dung',
     passed: keywords.length === 0 || matchedCount >= targetCount,
     category: 'additional',
     description:
       keywords.length === 0
-        ? 'Chua co tu khoa phu. Khong tru diem SEO.'
-        : `Da bao phu ${matchedCount}/${keywords.length} tu khoa phu. Nen co it nhat ${targetCount} tu khoa phu trong noi dung.`,
+        ? 'Chưa có từ khóa phụ. Không trừ điểm SEO.'
+        : `Đã bao phủ ${matchedCount}/${keywords.length} từ khóa phụ. Nên có ít nhất ${targetCount} từ khóa phụ trong nội dung.`,
   }
 }
 
@@ -273,13 +303,13 @@ export function checkSecondaryKeywordsInSubheadings(input: SeoInput): SeoCheckRe
 
   return {
     id: 'secondary-keywords-in-subheadings',
-    label: 'Tu khoa phu ho tro H2/H3',
+    label: 'Từ khóa phụ hỗ trợ H2/H3',
     passed: keywords.length === 0 || matchedCount > 0,
     category: 'additional',
     description:
       keywords.length === 0
-        ? 'Chua co tu khoa phu. Khong tru diem SEO.'
-        : `Da co ${matchedCount}/${keywords.length} tu khoa phu trong heading. Day la diem cong nhe, khong bat buoc.`,
+        ? 'Chưa có từ khóa phụ. Không trừ điểm SEO.'
+        : `Đã có ${matchedCount}/${keywords.length} từ khóa phụ trong heading. Đây là điểm cộng nhẹ, không bắt buộc.`,
   }
 }
 
@@ -443,7 +473,7 @@ export function runAllChecks(input: SeoInput): SeoCheckResult[] {
     checkKeywordInIntro(input),
     checkKeywordInContent(input),
     checkContentLength(input),
-    // Additional (6 checks)
+    // Additional (8 checks)
     checkKeywordInSubheadings(input),
     checkKeywordInImageAlt(input),
     checkKeywordDensity(input),

@@ -153,14 +153,21 @@ export function MediaPickerDialog({
     }
   }, [open, initialSelectedUrl, items])
 
+  const prevSelectedMediaIdRef = React.useRef<string | null>(null)
+
   React.useEffect(() => {
     if (!selectedMedia) {
       setDraft(emptyDraft)
       setDetailAltText("")
       setDetailTitle("")
       setDetailFileName("")
+      prevSelectedMediaIdRef.current = null
       return
     }
+
+    const isNewMedia = selectedMedia.id !== prevSelectedMediaIdRef.current
+    prevSelectedMediaIdRef.current = selectedMedia.id
+
     if (shouldApplyInitialDraftRef.current) {
       setDraft({
         altText: initialDraft?.altText ?? selectedMedia.altText ?? "",
@@ -169,14 +176,22 @@ export function MediaPickerDialog({
         title: initialDraft?.title ?? selectedMedia.title ?? selectedMedia.filename ?? "",
       })
       shouldApplyInitialDraftRef.current = false
-      setDetailAltText(selectedMedia.altText ?? "")
-      setDetailTitle(selectedMedia.title ?? "")
+      setDetailAltText(initialDraft?.altText ?? selectedMedia.altText ?? "")
+      setDetailTitle(initialDraft?.title ?? selectedMedia.title ?? "")
       setDetailFileName(selectedMedia.fileName ?? selectedMedia.filename ?? "")
       return
     }
+
+    // Neu khong phai chon anh moi (vi du chi re-fetch hoac cap nhat SEO cua anh dang chon),
+    // giu nguyen cac o text nguoi dung dang go de tranh race-condition lam mat text hoac bat bam 2 lan.
+    if (!isNewMedia) {
+      return
+    }
+
     if (lockDraftOnSelection && (isDraftDirty || captionOnly)) {
       return
     }
+
     setDraft({
       altText: selectedMedia.altText ?? "",
       caption: "",

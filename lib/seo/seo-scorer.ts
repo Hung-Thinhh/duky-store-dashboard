@@ -36,6 +36,11 @@ const SOFT_BONUS_POINTS = 2
  * Score is normalized to 0-100.
  */
 export function calculateSeoScore(input: SeoInput): SeoScoreResult {
+  console.log("SEO INPUT DEBUG:", {
+    focusKeyword: input.focusKeyword,
+    slug: input.slug,
+    seoTitle: input.seoTitle,
+  })
   const checks = runAllChecks(input)
 
   // Calculate earned points

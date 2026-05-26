@@ -4512,11 +4512,11 @@ export default function BlogPostDetailPage() {
       secondaryKeywords: keywords.slice(1),
       seoTitle: preview.seo?.metaTitle || preview.title || "",
       metaDescription: preview.seo?.metaDescription || preview.excerpt || "",
-      slug: generatedSlug,
+      slug: preview.slug || generatedSlug || "",
       htmlContent: preview.content || "",
       siteUrl: typeof window !== "undefined" ? window.location.origin : "",
     }
-  }, [focusKeyword, preview.seo?.metaTitle, preview.title, preview.seo?.metaDescription, preview.excerpt, generatedSlug, preview.content])
+  }, [focusKeyword, preview.seo?.metaTitle, preview.title, preview.seo?.metaDescription, preview.excerpt, preview.slug, generatedSlug, preview.content])
 
   const seoResult = useSeoAnalysis(seoInput)
   const seoKeywords = React.useMemo(
