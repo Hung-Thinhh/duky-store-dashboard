@@ -9,7 +9,7 @@ import { CustomerInsights } from "@/components/dashboard/customer-insights"
 
 export default function DashboardPage() {
   return (
-    <div className="mx-auto flex max-w-8xl flex-col gap-6">
+    <div className="mx-auto flex max-w-8xl flex-col gap-6 p-8">
       {/* Page Header */}
       <div>
         <h2 className="text-xl font-semibold text-foreground">

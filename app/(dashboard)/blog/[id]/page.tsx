@@ -5310,7 +5310,7 @@ export default function BlogPostDetailPage() {
       ) : null}
 
       <div className="sticky top-0 z-30 rounded-2xl border border-stone-200 bg-white/95 px-4 py-3 shadow-sm backdrop-blur supports-[backdrop-filter]:bg-white/90 lg:px-5">
-        <div className="flex flex-col gap-3 xl:flex-row xl:items-center xl:justify-between">
+        <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
           <div className="flex min-w-0 items-center gap-3">
             <Button
               variant="ghost"
@@ -5337,7 +5337,7 @@ export default function BlogPostDetailPage() {
             </div>
           </div>
 
-          <div className="flex flex-wrap items-center gap-2">
+          <div className="flex flex-wrap items-center gap-2 lg:justify-end">
             <Button
               type="button"
               variant="outline"
