@@ -40,6 +40,7 @@ import {
   IconShoppingBag,
   IconTruck,
   IconTrash,
+  IconUpload,
   IconX,
 } from "@tabler/icons-react"
 
@@ -2702,6 +2703,22 @@ export default function ProductDetailPage() {
         title={mediaPickerMode === "featured" ? "Chọn ảnh đại diện" : "Chọn ảnh Gallery"}
       />
 
+      <input
+        ref={featuredImageInputRef}
+        type="file"
+        accept="image/*"
+        onChange={handleFeaturedImageFile}
+        className="hidden"
+      />
+      <input
+        ref={galleryInputRef}
+        type="file"
+        accept="image/*"
+        multiple
+        onChange={handleGalleryFiles}
+        className="hidden"
+      />
+
       <div className="-mx-2 -mt-2 flex flex-col gap-4 border-b border-orange-100/70 px-2 pt-2 pb-4 md:-mx-4 md:flex-row md:items-center md:justify-between md:px-4">
         <div className="flex items-center gap-4">
           <Button variant="ghost" size="icon" asChild className="rounded-xl">
@@ -4096,12 +4113,23 @@ export default function ProductDetailPage() {
                   type="button"
                   variant="outline"
                   size="sm"
+                  className="rounded-xl border-orange-200 text-orange-700 bg-orange-50/50 hover:bg-orange-50 hover:text-orange-800"
+                  onClick={() => openGalleryPicker()}
+                  disabled={galleryImages.length >= gallerySlots.length}
+                >
+                  <IconUpload className="mr-1.5 size-4" />
+                  Tải lên từ máy (Nhiều ảnh)
+                </Button>
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="sm"
                   className="rounded-xl"
                   onClick={() => openMediaPicker("gallery")}
                   disabled={galleryImages.length >= gallerySlots.length}
                 >
-                  <IconPlus className="mr-2 size-4" />
-                  Thêm ảnh Gallery
+                  <IconPhoto className="mr-1.5 size-4" />
+                  Chọn từ Thư viện
                 </Button>
               </div>
               <div className="grid grid-cols-2 gap-3">
@@ -4119,7 +4147,7 @@ export default function ProductDetailPage() {
                         onClick={() =>
                           galleryImages[index]
                             ? openMediaPicker("gallery-replace", index)
-                            : openMediaPicker("gallery")
+                            : openGalleryPicker(index)
                         }
                       >
                         {galleryImages[index] ? (
@@ -4187,7 +4215,7 @@ export default function ProductDetailPage() {
                     type="button"
                     aria-label="Thêm ảnh gallery"
                     className="flex aspect-square items-center justify-center rounded-[15px] border border-dashed bg-muted/20 text-muted-foreground transition-colors hover:bg-muted"
-                    onClick={() => openMediaPicker("gallery")}
+                    onClick={() => openGalleryPicker()}
                   >
                     <IconPlus className="size-5" />
                   </button>
