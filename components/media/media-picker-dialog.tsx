@@ -38,6 +38,8 @@ type MediaPickerDialogProps = {
   initialDraft?: Partial<MediaDraft> | null
   captionOnly?: boolean
   lockDraftOnSelection?: boolean
+  multiple?: boolean
+  onSelectMultiple?: (mediaList: Media[]) => void
 }
 
 type MediaTab = "upload" | "library" | "url"
@@ -73,6 +75,8 @@ export function MediaPickerDialog({
   initialDraft = null,
   captionOnly = false,
   lockDraftOnSelection = false,
+  multiple = false,
+  onSelectMultiple,
 }: MediaPickerDialogProps) {
   const {
     items,
@@ -88,7 +92,8 @@ export function MediaPickerDialog({
 
   const [searchInput, setSearchInput] = React.useState("")
   const [tab, setTab] = React.useState<MediaTab>("library")
-  const [selectedMediaId, setSelectedMediaId] = React.useState<string | null>(null)
+  const [selectedMediaIds, setSelectedMediaIds] = React.useState<string[]>([])
+  const selectedMediaId = selectedMediaIds[selectedMediaIds.length - 1] ?? null
   const [draft, setDraft] = React.useState<MediaDraft>(emptyDraft)
   const [isUploading, setIsUploading] = React.useState(false)
   const [urlInput, setUrlInput] = React.useState("")
@@ -113,7 +118,7 @@ export function MediaPickerDialog({
   // Wrap hookSearch to also reset selection state
   const handleSearch = React.useCallback(
     (query: string) => {
-      setSelectedMediaId(null)
+      setSelectedMediaIds([])
       hookSearch(query)
     },
     [hookSearch]
@@ -128,7 +133,7 @@ export function MediaPickerDialog({
   React.useEffect(() => {
     if (open && !prevOpenRef.current) {
       setSearchInput("")
-      setSelectedMediaId(null)
+      setSelectedMediaIds([])
       setJustUploadedMedia(null)
       setSeoError(null)
       setDetailSeoError(null)
@@ -149,7 +154,7 @@ export function MediaPickerDialog({
     if (!open || !initialSelectedUrl || !items.length) return
     const matched = items.find((item) => item.url === initialSelectedUrl || item.secureUrl === initialSelectedUrl)
     if (matched) {
-      setSelectedMediaId(matched.id)
+      setSelectedMediaIds([matched.id])
     }
   }, [open, initialSelectedUrl, items])
 
@@ -207,12 +212,9 @@ export function MediaPickerDialog({
 
   // Orphaned selection check: reset if selectedMediaId is not in items
   React.useEffect(() => {
-    if (!selectedMediaId || items.length === 0 || isLoading) return
-    const exists = items.some((item) => item.id === selectedMediaId)
-    if (!exists) {
-      setSelectedMediaId(null)
-    }
-  }, [selectedMediaId, items, isLoading])
+    if (selectedMediaIds.length === 0 || items.length === 0 || isLoading) return
+    setSelectedMediaIds((prev) => prev.filter((id) => items.some((item) => item.id === id)))
+  }, [items, isLoading])
 
   // IntersectionObserver for infinite scroll sentinel
   React.useEffect(() => {
@@ -273,7 +275,7 @@ export function MediaPickerDialog({
       setJustUploadedMedia(null)
       setTab("library")
       hookSearch("")
-      setSelectedMediaId(updated.id)
+      setSelectedMediaIds([updated.id])
     } catch (err: any) {
       const message = err?.EM || err?.message || "Lưu thông tin SEO thất bại. Vui lòng thử lại."
       setSeoError(message)
@@ -287,7 +289,7 @@ export function MediaPickerDialog({
     setJustUploadedMedia(null)
     setTab("library")
     hookSearch("")
-    setSelectedMediaId(justUploadedMedia.id)
+    setSelectedMediaIds([justUploadedMedia.id])
   }
 
   // Task 7.4: Handle detail panel SEO update
@@ -304,7 +306,7 @@ export function MediaPickerDialog({
       // Update the item in the list without reload
       // The hook items are read-only, so we update selectedMedia via re-fetch
       hookSearch(searchQuery || "")
-      setSelectedMediaId(updated.id)
+      setSelectedMediaIds([updated.id])
     } catch (err: any) {
       const message = err?.EM || err?.message || "Cập nhật thất bại. Vui lòng thử lại."
       setDetailSeoError(message)
@@ -318,6 +320,17 @@ export function MediaPickerDialog({
   const [insertValidationFields, setInsertValidationFields] = React.useState<{ altText?: boolean; caption?: boolean }>({})
 
   const handleInsertSelectedMedia = () => {
+    if (selectedMediaIds.length === 0) return
+
+    if (multiple && onSelectMultiple) {
+      const selectedMediaItems = selectedMediaIds
+        .map((id) => items.find((item) => item.id === id))
+        .filter(Boolean) as Media[]
+      onSelectMultiple(selectedMediaItems)
+      onOpenChange(false)
+      return
+    }
+
     if (!selectedMedia) return
 
     const missing: { altText?: boolean; caption?: boolean } = {}
@@ -543,13 +556,23 @@ export function MediaPickerDialog({
                   <>
                     <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-4">
                       {items.map((media) => {
-                        const isSelected = selectedMediaId === media.id
+                        const isSelected = selectedMediaIds.includes(media.id)
                         const missingAltText = !media.altText
                         return (
                           <button
                             key={media.id}
                             type="button"
-                            onClick={() => setSelectedMediaId(media.id)}
+                            onClick={() => {
+                              if (multiple) {
+                                setSelectedMediaIds((prev) =>
+                                  prev.includes(media.id)
+                                    ? prev.filter((id) => id !== media.id)
+                                    : [...prev, media.id]
+                                )
+                              } else {
+                                setSelectedMediaIds([media.id])
+                              }
+                            }}
                             className={cn(
                               "relative overflow-hidden rounded-xl border bg-white text-left transition",
                               isSelected ? "border-orange-400 ring-2 ring-orange-100" : "border-stone-200 hover:border-orange-300"
@@ -738,14 +761,14 @@ export function MediaPickerDialog({
               ) : (
                 <div className="flex h-full items-center justify-center p-4 text-sm text-stone-500">Chọn một ảnh để xem chi tiết</div>
               )}
-              <div className="border-t p-4">
-                {insertError ? (
-                  <p className="mb-2 text-center text-xs text-red-500">{insertError}</p>
-                ) : null}
-                <Button type="button" className="w-full rounded-xl" disabled={!selectedMedia} onClick={handleInsertSelectedMedia}>
-                  Chèn vào nội dung
-                </Button>
-              </div>
+                <div className="border-t p-4">
+                  {insertError ? (
+                    <p className="mb-2 text-center text-xs text-red-500">{insertError}</p>
+                  ) : null}
+                  <Button type="button" className="w-full rounded-xl" disabled={selectedMediaIds.length === 0} onClick={handleInsertSelectedMedia}>
+                    {multiple ? `Chèn ${selectedMediaIds.length} ảnh` : "Chèn vào nội dung"}
+                  </Button>
+                </div>
             </aside>
           </div>
         ) : null}

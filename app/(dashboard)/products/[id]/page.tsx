@@ -2287,6 +2287,27 @@ export default function ProductDetailPage() {
     setMediaPickerOpen(false)
   }
 
+  const selectMultipleMediaItems = (mediaList: Media[]) => {
+    const nextImages = [...galleryImages]
+    const nextIds = [...galleryImageIds]
+
+    mediaList.forEach((media) => {
+      const mediaUrl = getUploadedMediaUrl(media)
+      const mediaId = getUploadedMediaId(media)
+      if (!mediaUrl || !mediaId) return
+
+      if (nextIds.includes(mediaId)) return
+
+      if (nextImages.length < gallerySlots.length) {
+        nextImages.push(mediaUrl)
+        nextIds.push(mediaId)
+      }
+    })
+
+    syncGallery(nextImages, nextIds)
+    setMediaPickerOpen(false)
+  }
+
   const handleGalleryFiles = (event: React.ChangeEvent<HTMLInputElement>) => {
     const files = Array.from(event.target.files ?? []).slice(
       0,
@@ -2700,6 +2721,8 @@ export default function ProductDetailPage() {
         open={mediaPickerOpen}
         onOpenChange={setMediaPickerOpen}
         onSelect={selectMediaItem}
+        onSelectMultiple={selectMultipleMediaItems}
+        multiple={mediaPickerMode === "gallery"}
         title={mediaPickerMode === "featured" ? "Chọn ảnh đại diện" : "Chọn ảnh Gallery"}
       />
 
