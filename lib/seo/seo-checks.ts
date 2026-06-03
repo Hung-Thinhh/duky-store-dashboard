@@ -88,9 +88,13 @@ export function keywordInIntro(words: string[], keyword: string): boolean {
  */
 export function keywordAtBeginningOfTitle(title: string, keyword: string): boolean {
   if (!title.trim() || !keyword.trim()) return false
-  const midpoint = Math.ceil(title.length / 2)
-  const firstHalf = title.substring(0, midpoint)
-  return containsKeyword(firstHalf, keyword)
+  const normalizedTitle = title.normalize('NFC').toLowerCase()
+  const normalizedKeyword = keyword.normalize('NFC').toLowerCase().trim()
+
+  const index = normalizedTitle.indexOf(normalizedKeyword)
+  if (index === -1) return false
+
+  return index <= Math.max(0, title.length / 2)
 }
 
 // ─── Individual Check Functions ──────────────────────────────────────────────

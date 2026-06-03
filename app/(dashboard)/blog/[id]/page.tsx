@@ -502,11 +502,10 @@ function escapeHtml(value: string) {
 
 function slugify(value: string) {
   return value
+    .toLowerCase()
     .normalize("NFD")
     .replace(/[\u0300-\u036f]/g, "")
-    .replace(/Ä'/g, "d")
-    .replace(/Đ/g, "D")
-    .toLowerCase()
+    .replace(/[đĐ]/g, "d")
     .replace(/[^a-z0-9]+/g, "-")
     .replace(/^-+|-+$/g, "")
 }
@@ -935,13 +934,14 @@ function buildSeoAnalysisForAi(seoResult: ReturnType<typeof useSeoAnalysis>) {
 
   return {
     score: seoResult.score,
-    targetScore: 82,
+    targetScore: 92,
     failedChecks,
     scoringNotes: [
-      "Basic SEO moi check khoang 10 diem: keyword trong title, meta description, slug, intro, content, va noi dung >= 600 tu.",
-      "Additional SEO moi check khoang 5 diem: keyword trong H2/H3, alt anh, density 1-2.5%, slug ngan, external link, internal link.",
-      "Title/readability va content/readability la diem cong nho: title co keyword o nua dau, co so, doan ngan, co media, cau ngan va khong lap cach mo dau.",
-      "Neu score duoi 80, uu tien sua failedChecks trong noi dung/anh/link. Metadata do FE tu sinh.",
+      "Muc tieu: dat tren 90 diem (green). AI phai sua du cac check fail de vuot 90.",
+      "Basic SEO moi check 10 diem (6 checks = 60d): keyword trong title, meta description, slug, intro, content, noi dung >= 600 tu.",
+      "Additional SEO moi check 5 diem (6 checks = 30d): keyword trong H2/H3, alt anh, density 1-2.5%, slug ngan, external link, internal link. 2 check soft bonus +2d moi cai.",
+      "Title readability (2 checks x 2.5d): keyword nua dau title, title co so. Content readability (4 checks x 1.25d): doan ngan, co media, cau ngan, khong lap cach mo dau.",
+      "Uu tien sua: keyword intro, keyword H2, alt anh, external link, internal link. Metadata do FE tu sinh.",
     ],
   }
 }
@@ -995,10 +995,15 @@ function buildAutoSeoFields(input: {
       ? `${focusKeyword}: ${title}`
       : title || focusKeyword
   const metaTitle = truncateSeoText(titleWithKeyword, 60)
-  const metaDescription = truncateSeoText(
-    excerpt || `${metaTitle} - Gợi ý chọn mua và phối đồ tại Duky Store.`,
-    160
-  )
+  let descWithKeyword = excerpt || `${metaTitle} - Gợi ý chọn mua và phối đồ tại Duky Store.`
+  if (
+    focusKeyword &&
+    descWithKeyword &&
+    !descWithKeyword.toLowerCase().includes(focusKeyword.toLowerCase())
+  ) {
+    descWithKeyword = `${focusKeyword}: ${descWithKeyword}`
+  }
+  const metaDescription = truncateSeoText(descWithKeyword, 160)
 
   return {
     metaTitle,
@@ -4480,8 +4485,8 @@ export default function BlogPostDetailPage() {
   const [lastAutoSaved, setLastAutoSaved] = React.useState<Date | null>(null)
   const [copiedLink, setCopiedLink] = React.useState<string | null>(null)
   const [aiTask, setAiTask] = React.useState<BlogAiTask>("SEO")
-  const [aiTone, setAiTone] = React.useState("Tư vấn thân thiện, chuyên nghiệp")
-  const [aiArticleType, setAiArticleType] = React.useState("Hướng dẫn SEO bán hàng")
+  const [aiTone, setAiTone] = React.useState("Tự nhiên, gần gũi, chuyên gia thời trang")
+  const [aiArticleType, setAiArticleType] = React.useState("Chia sẻ kinh nghiệm thời trang")
   const [isAiLoading, setIsAiLoading] = React.useState(false)
   const [isKeywordAiLoading, setIsKeywordAiLoading] = React.useState(false)
   const [aiResult, setAiResult] = React.useState<BlogAiAssistResult | null>(null)
@@ -5061,7 +5066,25 @@ export default function BlogPostDetailPage() {
     if (!aiResult?.seo) return
     const seo = aiResult.seo
 
-    if (!focusKeyword.trim() && seo.focusKeyword) {
+    if (seo.metaTitle) {
+      setValue("seo.metaTitle", seo.metaTitle, { shouldDirty: true })
+    }
+    if (seo.metaDescription) {
+      setValue("seo.metaDescription", seo.metaDescription, { shouldDirty: true })
+    }
+    if (seo.ogTitle) {
+      setValue("seo.ogTitle", seo.ogTitle, { shouldDirty: true })
+    }
+    if (seo.ogDescription) {
+      setValue("seo.ogDescription", seo.ogDescription, { shouldDirty: true })
+    }
+    if (seo.twitterTitle) {
+      setValue("seo.twitterTitle", seo.twitterTitle, { shouldDirty: true })
+    }
+    if (seo.twitterDescription) {
+      setValue("seo.twitterDescription", seo.twitterDescription, { shouldDirty: true })
+    }
+    if (seo.focusKeyword) {
       updateFocusKeyword(seo.focusKeyword)
     }
 
@@ -5094,30 +5117,80 @@ export default function BlogPostDetailPage() {
     if (selectedOgMedia) {
       setValue("seo.ogImageMediaId", selectedOgMedia.id, { shouldDirty: true })
     }
+
+    // Auto-optimize URL slug if current slug is unoptimized (empty, equals postId, has no hyphens, or lacks focusKeyword)
+    let nextSlug = preview.slug || ""
+    if (focusKeyword) {
+      const keywordSlug = slugify(focusKeyword)
+      const currentSlugNorm = slugify(nextSlug)
+      if (!nextSlug || nextSlug === postId || !nextSlug.includes("-") || !currentSlugNorm.includes(keywordSlug.replace(/-/g, ""))) {
+        const cleanTitle = slugify((!isSeoTask && aiResult?.title ? aiResult.title : preview.title) || "bai-viet")
+        if (cleanTitle.includes(keywordSlug.replace(/-/g, ""))) {
+          nextSlug = cleanTitle
+        } else {
+          nextSlug = slugify(`${focusKeyword} ${(!isSeoTask && aiResult?.title ? aiResult.title : preview.title) || ""}`)
+        }
+        setValue("slug", nextSlug, { shouldDirty: true, shouldValidate: true })
+      }
+    }
+
+    let nextContent = preview.content
     if (aiContentHtml) {
       const contentHtmlWithImages = insertAiSelectedImagesIntoHtml(
         aiContentHtml,
         aiResult?.selectedMedia,
         mediaById
       )
-      setValue("content", isSeoTask
+      const compiledContent = isSeoTask
         ? composeAiSeoContentBlocks(contentHtmlWithImages)
         : composeAiContentBlocks(
             contentHtmlWithImages,
             aiResult?.title || preview.title
-          ), {
+          )
+      nextContent = compiledContent
+      setValue("content", compiledContent, {
         shouldDirty: true,
         shouldValidate: true,
       })
     }
+
+    // Auto-calculate and force-write SEO metadata parameters
+    const nextTitle = !isSeoTask && aiResult?.title ? aiResult.title : (preview.title || "")
+    const nextExcerpt = !isSeoTask && aiResult?.excerpt ? aiResult.excerpt : (preview.excerpt || "")
+    const nextAutoSeo = buildAutoSeoFields({
+      title: nextTitle,
+      excerpt: nextExcerpt,
+      content: nextContent,
+      slug: nextSlug,
+      focusKeyword,
+    })
+
+    const fields = [
+      "metaTitle",
+      "metaDescription",
+      "ogTitle",
+      "ogDescription",
+      "twitterTitle",
+      "twitterDescription",
+      "canonicalUrl",
+    ] as const
+
+    fields.forEach((field) => {
+      if (nextAutoSeo[field]) {
+        setValue(`seo.${field}`, nextAutoSeo[field], { shouldDirty: true })
+      }
+    })
+
+    lastAutoSeoFieldsRef.current = nextAutoSeo
+
     applyAiSeo()
     setFeedback({
       message: isSeoTask
         ? aiContentHtml
-          ? "Đã áp dụng phần sửa điểm SEO vào nội dung."
+          ? "Đã áp dụng phần sửa điểm SEO vào nội dung và tự động tối ưu hóa thẻ SEO."
           : "Đã áp dụng gợi ý SEO từ AI."
         : aiContentHtml
-          ? "Đã áp dụng bản tối ưu bài viết và ảnh AI."
+          ? "Đã áp dụng bản tối ưu bài viết, ảnh AI và thẻ SEO."
           : "Đã áp dụng gợi ý tối ưu bài viết.",
       tone: "success",
     })
@@ -5287,7 +5360,7 @@ export default function BlogPostDetailPage() {
   return (
     <form onSubmit={handleSubmit(onSubmit)} onKeyDown={handleFormKeyDown} className="min-h-full ">
       {feedback ? (
-        <div className="fixed right-4 top-4 z-[80] w-[min(420px,calc(100vw-32px))]">
+        <div className="fixed right-4 top-[66px] z-[80] w-[min(420px,calc(100vw-32px))]">
           <div
             className={cn(
               "flex items-start gap-3 rounded-2xl border px-4 py-3 text-sm font-medium shadow-xl backdrop-blur",
@@ -5451,7 +5524,7 @@ export default function BlogPostDetailPage() {
                 <div className="flex min-w-0 items-center gap-2 rounded-xl px-3  text-sm">
                   <span className="shrink-0 text-stone-500">Slug:/</span>
                   <span className="min-w-0 flex-1 truncate font-mono text-orange-500">
-                    {generatedSlug || "bai-viet"}
+                    {preview.slug || generatedSlug || "bai-viet"}
                   </span>
                 </div>
                 <FieldError message={errors.slug?.message} />
@@ -5617,7 +5690,7 @@ export default function BlogPostDetailPage() {
                     )
                   })()}
                 </div>
-                <div className="grid gap-3 md:grid-cols-2">
+                <div className="grid gap-3 md:grid-cols-3">
                   <div className="space-y-2">
                     <div className="flex items-center justify-between">
                       <Label>Tiêu đề SEO</Label>
@@ -5627,6 +5700,17 @@ export default function BlogPostDetailPage() {
                       {...register("seo.metaTitle")}
                       placeholder={preview.title || "Tự động lấy tiêu đề bài viết"}
                       className="rounded-xl border-stone-300 focus-visible:ring-orange-200"
+                    />
+                  </div>
+                  <div className="space-y-2">
+                    <div className="flex items-center justify-between">
+                      <Label>URL Slug</Label>
+                      <span className="text-xs text-stone-400">{(preview.slug || "").length} / 75</span>
+                    </div>
+                    <Input
+                      {...register("slug")}
+                      placeholder="top-10-giay-boot"
+                      className="rounded-xl border-stone-300 focus-visible:ring-orange-200 font-mono text-xs"
                     />
                   </div>
                   <div className="space-y-2">
@@ -6423,6 +6507,17 @@ export default function BlogPostDetailPage() {
                     {...register("seo.metaTitle")}
                     placeholder={preview.title || "Tự động lấy tiêu đề bài viết"}
                     className="rounded-xl border-stone-300 focus-visible:ring-orange-200"
+                  />
+                </div>
+                <div className="space-y-2">
+                  <div className="flex items-center justify-between">
+                    <Label>URL Slug</Label>
+                    <span className="text-xs text-stone-400">{(preview.slug || "").length} / 75</span>
+                  </div>
+                  <Input
+                    {...register("slug")}
+                    placeholder="top-10-giay-boot"
+                    className="rounded-xl border-stone-300 focus-visible:ring-orange-200 font-mono text-xs"
                   />
                 </div>
                 <div className="space-y-2">
