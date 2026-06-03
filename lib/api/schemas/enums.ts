@@ -115,3 +115,10 @@ export const SettingValueType = {
   IMAGE: "IMAGE",
 } as const;
 export type SettingValueTypeEnum = typeof SettingValueType[keyof typeof SettingValueType];
+
+export const ProductAiTask = {
+  FULL_DRAFT: "FULL_DRAFT",
+  SEO: "SEO",
+  OPTIMIZE: "OPTIMIZE",
+} as const;
+export type ProductAiTaskType = typeof ProductAiTask[keyof typeof ProductAiTask];

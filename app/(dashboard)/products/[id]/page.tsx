@@ -36,11 +36,13 @@ import {
   IconPhoto,
   IconPlus,
   IconSearch,
+  IconSeo,
   IconSettings,
   IconShoppingBag,
   IconTruck,
   IconTrash,
   IconUpload,
+  IconWand,
   IconX,
 } from "@tabler/icons-react"
 
@@ -83,8 +85,11 @@ import type {
 } from "@/lib/api/schemas/product-attribute.schema"
 import {
   CreateProductPayloadSchema,
+  ProductAiTask,
   type ProductDetailItem,
   type ProductListItem,
+  type ProductAiAssistResult,
+  type ProductAiTaskType,
 } from "@/lib/api/schemas/product.schema"
 import { categoryService } from "@/lib/api/services/category.service"
 import { mediaService } from "@/lib/api/services/media.service"
@@ -454,11 +459,15 @@ function ArrayCheckbox({
   name,
   value,
   label,
+  style,
+  className,
 }: {
   control: ProductFormControl
   name: "categoryIds" | "tagIds" | "brandIds" | "galleryMediaIds"
   value: string
   label: React.ReactNode
+  style?: React.CSSProperties
+  className?: string
 }) {
   return (
     <Controller
@@ -468,7 +477,10 @@ function ArrayCheckbox({
         const selected = Array.isArray(field.value) ? field.value : []
 
         return (
-          <label className="flex cursor-pointer items-center gap-2 text-sm">
+          <label
+            style={style}
+            className={cn("flex cursor-pointer items-center gap-2 text-sm", className)}
+          >
             <Checkbox
               checked={selected.includes(value)}
               onCheckedChange={(checked) => {
@@ -1548,6 +1560,56 @@ function slugify(text: string): string {
     .replace(/-+/g, "-")
 }
 
+function buildCategoryTreeOrder(categories: Category[]): Category[] {
+  const map = new Map<string, Category[]>()
+  const roots: Category[] = []
+
+  categories.forEach((cat) => {
+    if (!cat.parentId) {
+      roots.push(cat)
+    } else {
+      const children = map.get(cat.parentId) || []
+      children.push(cat)
+      map.set(cat.parentId, children)
+    }
+  })
+
+  const result: Category[] = []
+
+  const traverse = (node: Category) => {
+    result.push(node)
+    const children = map.get(node.id)
+    if (children) {
+      children.forEach((child) => traverse(child))
+    }
+  }
+
+  roots.forEach((root) => traverse(root))
+
+  // Đề phòng các category bị mồ côi (nếu có lỗi parentId)
+  const addedIds = new Set(result.map((r) => r.id))
+  categories.forEach((cat) => {
+    if (!addedIds.has(cat.id)) {
+      result.push(cat)
+    }
+  })
+
+  return result
+}
+
+function getCategoryDepth(cat: Category, allCats: Category[]): number {
+  let depth = 0
+  let current = cat
+  const catMap = new Map(allCats.map((c) => [c.id, c]))
+  while (current.parentId) {
+    const parent = catMap.get(current.parentId)
+    if (!parent || parent.id === current.id) break
+    depth++
+    current = parent
+  }
+  return depth
+}
+
 export default function ProductDetailPage() {
   const params = useParams()
   const router = useRouter()
@@ -1598,6 +1660,98 @@ export default function ProductDetailPage() {
   const featuredImageInputRef = React.useRef<HTMLInputElement>(null)
   const galleryInputRef = React.useRef<HTMLInputElement>(null)
   const galleryReplaceIndexRef = React.useRef<number | null>(null)
+
+  // Product AI States
+  const [aiTask, setAiTask] = React.useState<ProductAiTaskType>(ProductAiTask.SEO)
+  const [aiTone, setAiTone] = React.useState("tư vấn bán hàng chuyên nghiệp, hiện đại")
+  const [aiResult, setAiResult] = React.useState<ProductAiAssistResult | null>(null)
+  const [isAiLoading, setIsAiLoading] = React.useState(false)
+  const [isKeywordAiLoading, setIsKeywordAiLoading] = React.useState(false)
+  const [aiFeedback, setAiFeedback] = React.useState<{
+    message: string
+    tone: "success" | "error"
+  } | null>(null)
+  const [seoKeywordInput, setSeoKeywordInput] = React.useState("")
+
+  // States cho Trợ lý AI Mô tả ngắn và Mô tả chi tiết
+  const [showShortDescAiPanel, setShowShortDescAiPanel] = React.useState(false)
+  const [shortDescAiPrompt, setShortDescAiPrompt] = React.useState("")
+  const [isShortDescAiLoading, setIsShortDescAiLoading] = React.useState(false)
+  const [shortDescAiFeedback, setShortDescAiFeedback] = React.useState<{
+    message: string
+    tone: "success" | "error"
+  } | null>(null)
+
+  const [showDescAiPanel, setShowDescAiPanel] = React.useState(false)
+  const [descAiPrompt, setDescAiPrompt] = React.useState("")
+  const [isDescAiLoading, setIsDescAiLoading] = React.useState(false)
+  const [descAiFeedback, setDescAiFeedback] = React.useState<{
+    message: string
+    tone: "success" | "error"
+  } | null>(null)
+
+  const [toast, setToast] = React.useState<{
+    message: string
+    tone: "success" | "error" | "info"
+  } | null>(null)
+
+  React.useEffect(() => {
+    if (!toast) return
+    const timer = setTimeout(() => {
+      setToast(null)
+    }, 4000)
+    return () => clearTimeout(timer)
+  }, [toast])
+
+  React.useEffect(() => {
+    if (detailFeedback) {
+      setToast({
+        message: detailFeedback.message,
+        tone: detailFeedback.tone,
+      })
+      setDetailFeedback(null)
+    }
+  }, [detailFeedback])
+
+  React.useEffect(() => {
+    if (aiFeedback) {
+      setToast({
+        message: aiFeedback.message,
+        tone: aiFeedback.tone === "success" ? "success" : "error",
+      })
+      setAiFeedback(null)
+    }
+  }, [aiFeedback])
+
+  React.useEffect(() => {
+    if (shortDescAiFeedback) {
+      setToast({
+        message: shortDescAiFeedback.message,
+        tone: shortDescAiFeedback.tone === "success" ? "success" : "error",
+      })
+      setShortDescAiFeedback(null)
+    }
+  }, [shortDescAiFeedback])
+
+  React.useEffect(() => {
+    if (descAiFeedback) {
+      setToast({
+        message: descAiFeedback.message,
+        tone: descAiFeedback.tone === "success" ? "success" : "error",
+      })
+      setDescAiFeedback(null)
+    }
+  }, [descAiFeedback])
+
+  const getToastClassName = (tone?: "success" | "error" | "info") => {
+    if (tone === "success") {
+      return "border-emerald-200 bg-emerald-50 text-emerald-700 shadow-emerald-900/10"
+    }
+    if (tone === "error") {
+      return "border-red-200 bg-red-50 text-red-700 shadow-red-900/10"
+    }
+    return "border-orange-200 bg-orange-50 text-orange-800 shadow-orange-900/10"
+  }
 
   const {
     register,
@@ -1727,6 +1881,449 @@ export default function ProductDetailPage() {
     ]
   )
 
+  const seoKeywords = React.useMemo(
+    () => (seoFocusKeyword || "").split(",").map((k) => k.trim()).filter(Boolean),
+    [seoFocusKeyword]
+  )
+
+  const updateFocusKeyword = React.useCallback(
+    (value: string) => {
+      setValue("seo.focusKeyword", value, { shouldDirty: true, shouldValidate: true })
+    },
+    [setValue]
+  )
+
+  const addSeoKeyword = React.useCallback(() => {
+    const nextKeyword = seoKeywordInput.trim()
+    if (!nextKeyword) return
+    const exists = seoKeywords.some(
+      (keyword) => keyword.toLowerCase() === nextKeyword.toLowerCase()
+    )
+    if (!exists) {
+      updateFocusKeyword([...seoKeywords, nextKeyword].join(", "))
+    }
+    setSeoKeywordInput("")
+  }, [seoKeywordInput, seoKeywords, updateFocusKeyword])
+
+  const handleSeoKeywordKeyDown = React.useCallback(
+    (event: React.KeyboardEvent<HTMLInputElement>) => {
+      if (event.key === "Enter") {
+        event.preventDefault()
+        addSeoKeyword()
+      }
+      if (event.key === "Backspace" && !seoKeywordInput && seoKeywords.length > 0) {
+        event.preventDefault()
+        updateFocusKeyword(seoKeywords.slice(0, -1).join(", "))
+      }
+    },
+    [addSeoKeyword, seoKeywordInput, seoKeywords, updateFocusKeyword]
+  )
+
+  const removeSeoKeyword = React.useCallback(
+    (index: number) => {
+      updateFocusKeyword(seoKeywords.filter((_, keywordIndex) => keywordIndex !== index).join(", "))
+    },
+    [seoKeywords, updateFocusKeyword]
+  )
+
+  const buildSeoAnalysisForAi = (analysis: ProductSeoAnalysis) => {
+    const failedChecks: string[] = []
+    analysis.groups.forEach((group) => {
+      group.checks.forEach((check) => {
+        if (check.status !== "good") {
+          failedChecks.push(`${check.label}: ${check.detail || "Không đạt"}`)
+        }
+      })
+    })
+    return {
+      score: analysis.score,
+      failedChecks,
+    }
+  }
+
+  const runProductAi = async () => {
+    try {
+      setIsAiLoading(true)
+      setAiResult(null)
+      setAiFeedback(null)
+
+      const selectedCategories = productCategories
+        .filter((c) => (getValues("categoryIds") ?? []).includes(c.id))
+        .map((c) => ({
+          title: c.name,
+          slug: c.slug,
+          url: `/danh-muc/${c.slug}`,
+        }))
+
+      // Chuẩn bị URL ảnh tuyệt đối
+      const images: string[] = []
+      if (featuredImageSrc) {
+        images.push(
+          featuredImageSrc.startsWith("http")
+            ? featuredImageSrc
+            : `${window.location.origin}${featuredImageSrc}`
+        )
+      }
+      galleryImages.forEach((img) => {
+        if (img) {
+          images.push(
+            img.startsWith("http") ? img : `${window.location.origin}${img}`
+          )
+        }
+      })
+
+      // Thu thập thông tin biến thể
+      const variantsPayload = variantDrafts.map((d) => ({
+        sku: d.sku,
+        price: d.price,
+        salePrice: d.salePrice,
+        isActive: d.isActive,
+        values: d.values.map((v) => ({
+          attribute: v.attributeName,
+          value: v.termName,
+        })),
+      }))
+
+      const result = await productService.assistWithAi({
+        task: aiTask,
+        name: productName || "",
+        slug: slug || "",
+        shortDescription: shortDescription || "",
+        description: description || "",
+        focusKeyword: (seoFocusKeyword || "").trim(),
+        productType: productType || "SIMPLE",
+        tone: aiTone,
+        categories: selectedCategories,
+        originalPrice: typeof originalPrice === "number" ? originalPrice : null,
+        salePrice: typeof salePrice === "number" ? salePrice : null,
+        stockQuantity: (getValues("stockQuantity") as any) ?? null,
+        variants: variantsPayload,
+        images,
+        extraContext: {
+          currentSeoScore: seoAnalysis?.score ?? null,
+          seoAnalysis: buildSeoAnalysisForAi(seoAnalysis),
+          lockedFocusKeyword: (seoFocusKeyword || "").trim() || null,
+        },
+      })
+
+      setAiResult(result)
+      setAiFeedback({
+        message: "AI đã gợi ý tối ưu thành công. Hãy chọn áp dụng.",
+        tone: "success",
+      })
+    } catch (error) {
+      console.error("Failed to run product AI", error)
+      setAiFeedback({
+        message: "Có lỗi xảy ra khi kết nối trợ lý AI.",
+        tone: "error",
+      })
+    } finally {
+      setIsAiLoading(false)
+    }
+  }
+
+  const runShortDescAi = async () => {
+    try {
+      setIsShortDescAiLoading(true)
+      setShortDescAiFeedback(null)
+
+      const selectedCategories = productCategories
+        .filter((c) => (getValues("categoryIds") ?? []).includes(c.id))
+        .map((c) => ({
+          title: c.name,
+          slug: c.slug,
+          url: `/danh-muc/${c.slug}`,
+        }))
+
+      const images: string[] = []
+      if (featuredImageSrc) {
+        images.push(
+          featuredImageSrc.startsWith("http")
+            ? featuredImageSrc
+            : `${window.location.origin}${featuredImageSrc}`
+        )
+      }
+      galleryImages.forEach((img) => {
+        if (img) {
+          images.push(
+            img.startsWith("http") ? img : `${window.location.origin}${img}`
+          )
+        }
+      })
+
+      const variantsPayload = variantDrafts.map((d) => ({
+        sku: d.sku,
+        price: d.price,
+        salePrice: d.salePrice,
+        isActive: d.isActive,
+        values: d.values.map((v) => ({
+          attribute: v.attributeName,
+          value: v.termName,
+        })),
+      }))
+
+      const result = await productService.assistWithAi({
+        task: ProductAiTask.OPTIMIZE,
+        name: productName || "",
+        slug: slug || "",
+        shortDescription: shortDescription || "",
+        description: description || "",
+        focusKeyword: (seoFocusKeyword || "").trim(),
+        productType: productType || "SIMPLE",
+        tone: aiTone,
+        categories: selectedCategories,
+        originalPrice: typeof originalPrice === "number" ? originalPrice : null,
+        salePrice: typeof salePrice === "number" ? salePrice : null,
+        stockQuantity: (getValues("stockQuantity") as any) ?? null,
+        variants: variantsPayload,
+        images,
+        extraContext: {
+          mode: "WRITE_SHORT_DESCRIPTION",
+          prompt: shortDescAiPrompt.trim(),
+        },
+      })
+
+      if (result.shortDescription) {
+        setValue("shortDescription", result.shortDescription, {
+          shouldDirty: true,
+          shouldValidate: true,
+        })
+        setShortDescAiFeedback({
+          message: "Đã tạo mô tả ngắn từ AI thành công.",
+          tone: "success",
+        })
+        setShowShortDescAiPanel(false)
+        setShortDescAiPrompt("")
+      } else {
+        setShortDescAiFeedback({
+          message: "AI không trả về mô tả ngắn. Hãy thử lại.",
+          tone: "error",
+        })
+      }
+    } catch (error) {
+      console.error("Failed to run short description AI", error)
+      setShortDescAiFeedback({
+        message: "Có lỗi xảy ra khi kết nối trợ lý AI.",
+        tone: "error",
+      })
+    } finally {
+      setIsShortDescAiLoading(false)
+    }
+  }
+
+  const runDescAi = async () => {
+    try {
+      setIsDescAiLoading(true)
+      setDescAiFeedback(null)
+
+      const selectedCategories = productCategories
+        .filter((c) => (getValues("categoryIds") ?? []).includes(c.id))
+        .map((c) => ({
+          title: c.name,
+          slug: c.slug,
+          url: `/danh-muc/${c.slug}`,
+        }))
+
+      const images: string[] = []
+      if (featuredImageSrc) {
+        images.push(
+          featuredImageSrc.startsWith("http")
+            ? featuredImageSrc
+            : `${window.location.origin}${featuredImageSrc}`
+        )
+      }
+      galleryImages.forEach((img) => {
+        if (img) {
+          images.push(
+            img.startsWith("http") ? img : `${window.location.origin}${img}`
+          )
+        }
+      })
+
+      const variantsPayload = variantDrafts.map((d) => ({
+        sku: d.sku,
+        price: d.price,
+        salePrice: d.salePrice,
+        isActive: d.isActive,
+        values: d.values.map((v) => ({
+          attribute: v.attributeName,
+          value: v.termName,
+        })),
+      }))
+
+      const result = await productService.assistWithAi({
+        task: ProductAiTask.OPTIMIZE,
+        name: productName || "",
+        slug: slug || "",
+        shortDescription: shortDescription || "",
+        description: description || "",
+        focusKeyword: (seoFocusKeyword || "").trim(),
+        productType: productType || "SIMPLE",
+        tone: aiTone,
+        categories: selectedCategories,
+        originalPrice: typeof originalPrice === "number" ? originalPrice : null,
+        salePrice: typeof salePrice === "number" ? salePrice : null,
+        stockQuantity: (getValues("stockQuantity") as any) ?? null,
+        variants: variantsPayload,
+        images,
+        extraContext: {
+          mode: "WRITE_DESCRIPTION",
+          prompt: descAiPrompt.trim(),
+        },
+      })
+
+      if (result.description) {
+        setValue("description", result.description, {
+          shouldDirty: true,
+          shouldValidate: true,
+        })
+        setDescAiFeedback({
+          message: "Đã tạo mô tả chi tiết từ AI thành công.",
+          tone: "success",
+        })
+        setShowDescAiPanel(false)
+        setDescAiPrompt("")
+      } else {
+        setDescAiFeedback({
+          message: "AI không trả về mô tả chi tiết. Hãy thử lại.",
+          tone: "error",
+        })
+      }
+    } catch (error) {
+      console.error("Failed to run description AI", error)
+      setDescAiFeedback({
+        message: "Có lỗi xảy ra khi kết nối trợ lý AI.",
+        tone: "error",
+      })
+    } finally {
+      setIsDescAiLoading(false)
+    }
+  }
+
+  const runKeywordAi = async () => {
+    try {
+      setIsKeywordAiLoading(true)
+      setAiFeedback(null)
+
+      const images: string[] = []
+      if (featuredImageSrc) {
+        images.push(
+          featuredImageSrc.startsWith("http")
+            ? featuredImageSrc
+            : `${window.location.origin}${featuredImageSrc}`
+        )
+      }
+      galleryImages.forEach((img) => {
+        if (img) {
+          images.push(
+            img.startsWith("http") ? img : `${window.location.origin}${img}`
+          )
+        }
+      })
+
+      const variantsPayload = variantDrafts.map((d) => ({
+        sku: d.sku,
+        price: d.price,
+        salePrice: d.salePrice,
+        isActive: d.isActive,
+        values: d.values.map((v) => ({
+          attribute: v.attributeName,
+          value: v.termName,
+        })),
+      }))
+
+      const result = await productService.assistWithAi({
+        task: ProductAiTask.SEO,
+        name: productName || "",
+        slug: slug || "",
+        shortDescription: shortDescription || "",
+        description: description || "",
+        focusKeyword: (seoFocusKeyword || "").trim(),
+        productType: productType || "SIMPLE",
+        tone: aiTone,
+        originalPrice: typeof originalPrice === "number" ? originalPrice : null,
+        salePrice: typeof salePrice === "number" ? salePrice : null,
+        stockQuantity: (getValues("stockQuantity") as any) ?? null,
+        variants: variantsPayload,
+        images,
+        extraContext: {
+          mode: "SEO_KEYWORD_SUGGESTION",
+        },
+      })
+
+      const suggestedKeyword = result.seo?.focusKeyword ?? ""
+      if (!suggestedKeyword) {
+        setAiFeedback({
+          message: "Không nhận được gợi ý từ khóa từ AI.",
+          tone: "error",
+        })
+        return
+      }
+
+      setValue("seo.focusKeyword", suggestedKeyword, {
+        shouldDirty: true,
+        shouldValidate: true,
+      })
+      setAiFeedback({
+        message: `Đã cập nhật từ khóa gợi ý: "${suggestedKeyword}"`,
+        tone: "success",
+      })
+    } catch (error) {
+      console.error("Failed to suggest keywords", error)
+      setAiFeedback({
+        message: "Không thể gợi ý từ khóa. Vui lòng thử lại sau.",
+        tone: "error",
+      })
+    } finally {
+      setIsKeywordAiLoading(false)
+    }
+  }
+
+  const applyAiSuggestions = () => {
+    if (!aiResult) return
+
+    if (aiResult.name) {
+      setValue("name", aiResult.name, {
+        shouldDirty: true,
+        shouldValidate: true,
+      })
+    }
+    if (aiResult.slug) {
+      setValue("slug", aiResult.slug, {
+        shouldDirty: true,
+        shouldValidate: true,
+      })
+    }
+    if (aiResult.shortDescription) {
+      setValue("shortDescription", aiResult.shortDescription, {
+        shouldDirty: true,
+      })
+    }
+    if (aiResult.description) {
+      setValue("description", aiResult.description, { shouldDirty: true })
+    }
+    if (aiResult.seo?.metaTitle) {
+      setValue("seo.metaTitle", aiResult.seo.metaTitle, { shouldDirty: true })
+    }
+    if (aiResult.seo?.metaDescription) {
+      setValue("seo.metaDescription", aiResult.seo.metaDescription, {
+        shouldDirty: true,
+      })
+    }
+    if (aiResult.seo?.focusKeyword) {
+      setValue("seo.focusKeyword", aiResult.seo.focusKeyword, {
+        shouldDirty: true,
+        shouldValidate: true,
+      })
+    }
+
+    setAiResult(null)
+    setAiFeedback({
+      message: "Đã áp dụng các tối ưu SEO từ AI vào các trường dữ liệu.",
+      tone: "success",
+    })
+  }
+
   // Tự động sinh Slug và SKU từ tên sản phẩm khi thêm mới
   React.useEffect(() => {
     if (!isNew || !productName) return
@@ -1774,7 +2371,8 @@ export default function ProductDetailPage() {
     const fetchCategories = async () => {
       try {
         const response = await categoryService.getCategories({ limit: 100 })
-        setProductCategories(response.data)
+        const ordered = buildCategoryTreeOrder(response.data)
+        setProductCategories(ordered)
       } catch (error) {
         console.error("Failed to fetch product categories", error)
         setProductCategories([])
@@ -2742,24 +3340,46 @@ export default function ProductDetailPage() {
         className="hidden"
       />
 
-      <div className="-mx-2 -mt-2 flex flex-col gap-4 border-b border-orange-100/70 px-2 pt-2 pb-4 md:-mx-4 md:flex-row md:items-center md:justify-between md:px-4">
+      <div className="sticky top-0 z-30 -mx-2 -mt-2 flex flex-col gap-4 border-b border-orange-100/70 bg-background/95 backdrop-blur-md px-2 pt-3 pb-3 shadow-sm md:-mx-4 md:flex-row md:items-center md:justify-between md:px-4 md:pt-4 md:pb-4 transition-all">
         <div className="flex items-center gap-4">
           <Button variant="ghost" size="icon" asChild className="rounded-xl">
             <Link href="/products">
               <IconArrowLeft className="size-5" />
             </Link>
           </Button>
-          <div>
+          <div className="flex flex-col gap-1">
             <h1 className="text-2xl font-bold tracking-tight">
               {isNew ? "Thêm sản phẩm mới" : "Chỉnh sửa sản phẩm"}
             </h1>
-            <p className="mt-1 text-sm text-muted-foreground">
+            <p className="text-sm text-muted-foreground">
               Bổ sung đầy đủ nội dung, dữ liệu bán hàng, SEO và hình ảnh như
               trang quản trị sản phẩm.
             </p>
           </div>
         </div>
-        <div className="flex gap-2">
+        <div className="flex items-center gap-2">
+          <div
+            className={cn(
+              "inline-flex items-center gap-1.5 rounded-full px-3 py-1.5 text-xs font-semibold shadow-sm border transition-all bg-white mr-1",
+              seoAnalysis.score >= 80
+                ? "border-green-200 text-green-700 shadow-green-100/30"
+                : seoAnalysis.score >= 55
+                ? "border-orange-200 text-orange-700 shadow-orange-100/30"
+                : "border-red-200 text-red-700 shadow-red-100/30"
+            )}
+          >
+            <span
+              className={cn(
+                "size-2 rounded-full",
+                seoAnalysis.score >= 80
+                  ? "bg-green-500 animate-pulse"
+                  : seoAnalysis.score >= 55
+                  ? "bg-orange-500 animate-pulse"
+                  : "bg-red-500 animate-pulse"
+              )}
+            />
+            Điểm SEO: {seoAnalysis.score}/100
+          </div>
           <Button
             type="button"
             variant="outline"
@@ -2782,10 +3402,7 @@ export default function ProductDetailPage() {
           </Button>
         </div>
       </div>
-      <InlineFeedback
-        message={detailFeedback?.message ?? null}
-        tone={detailFeedback?.tone}
-      />
+
 
       <div className="grid grid-cols-1 items-start gap-6 lg:grid-cols-[minmax(0,1fr)_340px]">
         <div className="flex flex-col gap-6">
@@ -2811,20 +3428,55 @@ export default function ProductDetailPage() {
               <input type="hidden" {...register("slug")} />
               <input type="hidden" {...register("sku")} />
 
-              <div className="rounded-xl border border-orange-100 bg-orange-50/35 p-3 text-sm">
-                <span className="font-medium">Permalink: </span>
-                <Link
-                  href={productPreviewUrl}
-                  className="break-all text-primary hover:underline"
-                  target="_blank"
-                  rel="noreferrer"
-                >
-                  {productPreviewPath}
-                </Link>
-              </div>
-
               <div className="flex flex-col gap-2">
-                <Label>Mô tả chi tiết</Label>
+                <div className="flex items-center justify-between">
+                  <Label>Mô tả chi tiết</Label>
+                  <Button
+                    type="button"
+                    variant="ghost"
+                    size="sm"
+                    className="h-8 rounded-lg bg-orange-50 px-2.5 text-xs text-orange-700 hover:bg-orange-100 hover:text-orange-800 gap-1.5"
+                    onClick={() => setShowDescAiPanel(!showDescAiPanel)}
+                  >
+                    <IconWand className="size-3.5" />
+                    Trợ lý AI
+                  </Button>
+                </div>
+
+                {showDescAiPanel && (
+                  <div className="rounded-xl border border-orange-100 bg-orange-50/20 p-3 space-y-3">
+                    <div className="flex gap-2">
+                      <Input
+                        value={descAiPrompt}
+                        onChange={(e) => setDescAiPrompt(e.target.value)}
+                        placeholder="Nhập yêu cầu (ví dụ: Viết mô tả chi tiết 3 phần chất liệu da bò, phối đồ, cách chọn size)..."
+                        className="rounded-xl border-stone-300 focus-visible:ring-orange-200 h-9 text-xs"
+                        onKeyDown={(e) => {
+                          if (e.key === "Enter") {
+                            e.preventDefault()
+                            runDescAi()
+                          }
+                        }}
+                      />
+                      <Button
+                        type="button"
+                        size="sm"
+                        disabled={isDescAiLoading}
+                        className="rounded-xl bg-orange-600 text-xs text-white hover:bg-orange-700 h-9 shrink-0 gap-1"
+                        onClick={runDescAi}
+                      >
+                        {isDescAiLoading ? (
+                          <IconLoader2 className="size-3.5 animate-spin" />
+                        ) : (
+                          <IconWand className="size-3.5" />
+                        )}
+                        Viết mô tả dài
+                      </Button>
+                    </div>
+
+                  </div>
+                )}
+
                 <Controller
                   name="description"
                   control={control}
@@ -3898,13 +4550,59 @@ export default function ProductDetailPage() {
           </Card>
 
           <Card className="rounded-2xl shadow-sm">
-            <CardHeader>
-              <CardTitle>Mô tả ngắn</CardTitle>
-              <CardDescription>
-                Đoạn giới thiệu ngắn hiển thị gần giá và nút mua hàng.
-              </CardDescription>
+            <CardHeader className="flex flex-row items-start justify-between space-y-0">
+              <div>
+                <CardTitle>Mô tả ngắn</CardTitle>
+                <CardDescription>
+                  Đoạn giới thiệu ngắn hiển thị gần giá và nút mua hàng.
+                </CardDescription>
+              </div>
+              <Button
+                type="button"
+                variant="ghost"
+                size="sm"
+                className="h-8 rounded-lg bg-orange-50 px-2.5 text-xs text-orange-700 hover:bg-orange-100 hover:text-orange-800 gap-1.5 shrink-0"
+                onClick={() => setShowShortDescAiPanel(!showShortDescAiPanel)}
+              >
+                <IconWand className="size-3.5" />
+                Trợ lý AI
+              </Button>
             </CardHeader>
-            <CardContent>
+            <CardContent className="space-y-4">
+              {showShortDescAiPanel && (
+                <div className="rounded-xl border border-orange-100 bg-orange-50/20 p-3 space-y-3">
+                  <div className="flex gap-2">
+                    <Input
+                      value={shortDescAiPrompt}
+                      onChange={(e) => setShortDescAiPrompt(e.target.value)}
+                      placeholder="Nhập yêu cầu (ví dụ: Viết mô tả ngắn làm nổi bật sự êm ái, dáng ôm gọn)..."
+                      className="rounded-xl border-stone-300 focus-visible:ring-orange-200 h-9 text-xs"
+                      onKeyDown={(e) => {
+                        if (e.key === "Enter") {
+                          e.preventDefault()
+                          runShortDescAi()
+                        }
+                      }}
+                    />
+                    <Button
+                      type="button"
+                      size="sm"
+                      disabled={isShortDescAiLoading}
+                      className="rounded-xl bg-orange-600 text-xs text-white hover:bg-orange-700 h-9 shrink-0 gap-1"
+                      onClick={runShortDescAi}
+                    >
+                      {isShortDescAiLoading ? (
+                        <IconLoader2 className="size-3.5 animate-spin" />
+                      ) : (
+                        <IconWand className="size-3.5" />
+                      )}
+                      Viết mô tả ngắn
+                    </Button>
+                  </div>
+
+                </div>
+              )}
+
               <Controller
                 name="shortDescription"
                 control={control}
@@ -3929,13 +4627,75 @@ export default function ProductDetailPage() {
             </CardHeader>
             <CardContent className="flex flex-col gap-4">
               <div className="flex flex-col gap-2">
-                <Label htmlFor="seo.focusKeyword">Từ khóa chính</Label>
-                <Input
-                  id="seo.focusKeyword"
-                  {...register("seo.focusKeyword")}
-                  className="rounded-xl"
-                  placeholder="chelsea boot, mũi nhọn"
-                />
+                <div className="flex items-center justify-between">
+                  <Label>Từ khóa SEO</Label>
+                </div>
+                <div className="flex min-h-10 flex-wrap items-center gap-1.5 rounded-xl border border-stone-200 bg-white px-3 py-2 focus-within:ring-2 focus-within:ring-green-100">
+                  {seoKeywords.map((keyword, index) => {
+                    const isPrimary = index === 0
+                    return (
+                      <span
+                        key={`${keyword}-${index}`}
+                        className={cn(
+                          "inline-flex max-w-full items-center gap-1 rounded-full px-2.5 py-1 text-xs font-medium",
+                          isPrimary
+                            ? "bg-green-300 text-green-800"
+                            : "bg-orange-200/80 text-orange-700"
+                        )}
+                      >
+                        <span className="truncate">{keyword}</span>
+                        {isPrimary && (
+                          <span
+                            className={cn(
+                              "rounded-full px-1.5 py-0.5 text-[10px] uppercase bg-green-200 text-green-900 font-semibold"
+                            )}
+                          >
+                            Chính
+                          </span>
+                        )}
+                        <button
+                          type="button"
+                          onClick={() => removeSeoKeyword(index)}
+                          className={cn(
+                            "inline-flex size-4 shrink-0 items-center justify-center rounded-full",
+                            isPrimary ? "hover:bg-green-200" : "hover:bg-stone-200"
+                          )}
+                          aria-label={`Xoa tu khoa ${keyword}`}
+                        >
+                          <IconX className="size-3" />
+                        </button>
+                      </span>
+                    )
+                  })}
+                  <input
+                    value={seoKeywordInput}
+                    onChange={(event) => setSeoKeywordInput(event.target.value)}
+                    onKeyDown={handleSeoKeywordKeyDown}
+                    onBlur={addSeoKeyword}
+                    placeholder={seoKeywords.length ? "Thêm từ khóa phụ..." : "Nhập từ khóa chính + Enter"}
+                    className="min-w-[120px] flex-1 border-0 bg-transparent text-sm outline-none placeholder:text-stone-400 focus:ring-0 focus:border-0"
+                  />
+                  <Button
+                    type="button"
+                    size="icon"
+                    variant="ghost"
+                    className="size-8 shrink-0 rounded-lg bg-orange-50 text-orange-700 ring-1 ring-orange-100 hover:bg-orange-100 hover:text-orange-800"
+                    onMouseDown={(event) => event.preventDefault()}
+                    onClick={runKeywordAi}
+                    disabled={isKeywordAiLoading}
+                    aria-label="AI gợi ý từ khóa SEO"
+                    title="AI gợi ý từ khóa SEO"
+                  >
+                    {isKeywordAiLoading ? (
+                      <IconLoader2 className="size-4 animate-spin" />
+                    ) : (
+                      <IconWand className="size-4" />
+                    )}
+                  </Button>
+                </div>
+                <p className="text-xs leading-5 text-stone-500">
+                  Nên có 1 từ khóa chính. Thêm các từ khóa phụ nếu cần mở rộng ngữ nghĩa.
+                </p>
               </div>
               <div className="hidden flex flex-col gap-2">
                 <Label htmlFor="seo.metaTitle">Tiêu đề meta</Label>
@@ -3962,6 +4722,109 @@ export default function ProductDetailPage() {
                 />
               </div>
               <SeoAnalysisPanel analysis={seoAnalysis} />
+            </CardContent>
+          </Card>
+
+          <Card className="rounded-2xl shadow-sm border border-stone-200">
+            <CardHeader className="pb-3">
+              <div className="flex items-center gap-2">
+                <IconSeo className="size-5 text-orange-600 animate-pulse" />
+                <div>
+                  <CardTitle className="text-lg">Trợ lý AI SEO & Nội dung</CardTitle>
+                  <CardDescription>
+                    Viết nháp mô tả chi tiết, mô tả ngắn hoặc tối ưu hóa SEO sản phẩm tự động.
+                  </CardDescription>
+                </div>
+              </div>
+            </CardHeader>
+            <CardContent className="space-y-4">
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                <div className="space-y-2">
+                  <Label className="text-sm font-medium">Tác vụ AI</Label>
+                  <Select
+                    value={aiTask}
+                    onValueChange={(value) => setAiTask(value as ProductAiTaskType)}
+                  >
+                    <SelectTrigger className="w-full rounded-xl border-stone-300 focus:ring-orange-200">
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value={ProductAiTask.SEO}>Tối ưu SEO (Đạt điểm cao)</SelectItem>
+                      <SelectItem value={ProductAiTask.FULL_DRAFT}>Viết nháp hoàn chỉnh (Short & Full Description)</SelectItem>
+                      <SelectItem value={ProductAiTask.OPTIMIZE}>Nâng cao chất lượng (Tăng chuyển đổi)</SelectItem>
+                    </SelectContent>
+                  </Select>
+                  <p className="text-xs text-stone-500">
+                    {aiTask === ProductAiTask.SEO
+                      ? "AI sẽ phân tích và sửa các lỗi SEO hiện tại (keyword, headings, alt, links...) để đưa điểm SEO lên >90."
+                      : aiTask === ProductAiTask.FULL_DRAFT
+                      ? "AI viết nháp phần giới thiệu ngắn và mô tả chi tiết từ tên sản phẩm, danh mục và từ khóa chính."
+                      : "AI trau chuốt lại hành văn, thêm điểm nhấn thu hút khách hàng và tối ưu hóa định dạng hiển thị."}
+                  </p>
+                </div>
+
+                <div className="space-y-2">
+                  <Label className="text-sm font-medium">Giọng điệu (Tone)</Label>
+                  <Input
+                    value={aiTone}
+                    onChange={(e) => setAiTone(e.target.value)}
+                    placeholder="tư vấn bán hàng chuyên nghiệp, hiện đại..."
+                    className="rounded-xl border-stone-300 focus-visible:ring-orange-200"
+                  />
+                  <p className="text-xs text-stone-500">
+                    Ví dụ: trẻ trung năng động, sang trọng lịch lãm, tư vấn kỹ thuật chi tiết...
+                  </p>
+                </div>
+              </div>
+
+              <div className="flex justify-end gap-2">
+                <Button
+                  type="button"
+                  className="rounded-xl bg-stone-950 text-white hover:bg-stone-800 gap-2"
+                  onClick={runProductAi}
+                  disabled={isAiLoading}
+                >
+                  {isAiLoading ? (
+                    <IconLoader2 className="size-4 animate-spin" />
+                  ) : (
+                    <IconWand className="size-4" />
+                  )}
+                  {isAiLoading ? "AI đang xử lý..." : "Tạo gợi ý AI"}
+                </Button>
+              </div>
+
+
+
+              {aiResult ? (
+                <div className="rounded-2xl border border-orange-100 bg-orange-50/40 p-4 space-y-3">
+                  <div className="space-y-1">
+                    <p className="font-semibold text-stone-900 text-sm">Đánh giá & Thay đổi đề xuất:</p>
+                    <p className="text-xs leading-5 text-stone-600">{aiResult.summary}</p>
+                  </div>
+
+                  {aiResult.improvements?.length ? (
+                    <div className="space-y-1">
+                      <p className="text-xs font-semibold uppercase text-stone-400">Các điểm đã cải tiến</p>
+                      <ul className="list-disc space-y-1 pl-4 text-xs leading-5 text-stone-700">
+                        {aiResult.improvements.map((item, index) => (
+                          <li key={`${item}-${index}`}>{item}</li>
+                        ))}
+                      </ul>
+                    </div>
+                  ) : null}
+
+                  <div className="flex gap-2 pt-2">
+                    <Button
+                      type="button"
+                      size="sm"
+                      className="rounded-xl bg-orange-600 text-xs text-white hover:bg-orange-700"
+                      onClick={applyAiSuggestions}
+                    >
+                      Áp dụng các gợi ý này
+                    </Button>
+                  </div>
+                </div>
+              ) : null}
             </CardContent>
           </Card>
         </div>
@@ -4136,17 +4999,6 @@ export default function ProductDetailPage() {
                   type="button"
                   variant="outline"
                   size="sm"
-                  className="rounded-xl border-orange-200 text-orange-700 bg-orange-50/50 hover:bg-orange-50 hover:text-orange-800"
-                  onClick={() => openGalleryPicker()}
-                  disabled={galleryImages.length >= gallerySlots.length}
-                >
-                  <IconUpload className="mr-1.5 size-4" />
-                  Tải lên từ máy (Nhiều ảnh)
-                </Button>
-                <Button
-                  type="button"
-                  variant="outline"
-                  size="sm"
                   className="rounded-xl"
                   onClick={() => openMediaPicker("gallery")}
                   disabled={galleryImages.length >= gallerySlots.length}
@@ -4170,7 +5022,7 @@ export default function ProductDetailPage() {
                         onClick={() =>
                           galleryImages[index]
                             ? openMediaPicker("gallery-replace", index)
-                            : openGalleryPicker(index)
+                            : openMediaPicker("gallery-replace", index)
                         }
                       >
                         {galleryImages[index] ? (
@@ -4238,7 +5090,7 @@ export default function ProductDetailPage() {
                     type="button"
                     aria-label="Thêm ảnh gallery"
                     className="flex aspect-square items-center justify-center rounded-[15px] border border-dashed bg-muted/20 text-muted-foreground transition-colors hover:bg-muted"
-                    onClick={() => openGalleryPicker()}
+                    onClick={() => openMediaPicker("gallery")}
                   >
                     <IconPlus className="size-5" />
                   </button>
@@ -4258,25 +5110,20 @@ export default function ProductDetailPage() {
                   Đang tải danh mục...
                 </div>
               ) : productCategories.length ? (
-                productCategories.map((category) => (
-                  <ArrayCheckbox
-                    key={category.id}
-                    control={control}
-                    name="categoryIds"
-                    value={category.id}
-                    label={
-                      <span
-                        className={
-                          category.parentId
-                            ? "ml-4 text-muted-foreground"
-                            : undefined
-                        }
-                      >
-                        {category.name}
-                      </span>
-                    }
-                  />
-                ))
+                productCategories.map((category) => {
+                  const depth = getCategoryDepth(category, productCategories)
+                  return (
+                    <ArrayCheckbox
+                      key={category.id}
+                      control={control}
+                      name="categoryIds"
+                      value={category.id}
+                      style={{ paddingLeft: `${depth * 20}px` }}
+                      className={category.parentId ? "text-muted-foreground" : "font-medium"}
+                      label={category.name}
+                    />
+                  )
+                })
               ) : (
                 <p className="text-sm text-muted-foreground">
                   Chưa có danh mục sản phẩm.
@@ -4348,6 +5195,29 @@ export default function ProductDetailPage() {
           </Card>
         </div>
       </div>
+
+      {toast ? (
+        <div className="fixed right-4 top-[66px] z-[80] w-[min(420px,calc(100vw-32px))]">
+          <div
+            className={cn(
+              "flex items-start gap-3 rounded-2xl border px-4 py-3 text-sm font-medium shadow-xl backdrop-blur",
+              getToastClassName(toast.tone)
+            )}
+            role="status"
+            aria-live="polite"
+          >
+            <span className="min-w-0 flex-1 leading-6">{toast.message}</span>
+            <button
+              type="button"
+              onClick={() => setToast(null)}
+              className="flex size-6 shrink-0 items-center justify-center rounded-full text-current/70 transition hover:bg-white/70 hover:text-current"
+              aria-label="Đóng thông báo"
+            >
+              ×
+            </button>
+          </div>
+        </div>
+      ) : null}
     </form>
   )
 }

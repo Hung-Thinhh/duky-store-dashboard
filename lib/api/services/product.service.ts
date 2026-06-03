@@ -4,6 +4,8 @@ import {
   ProductDetailResponseSchema,
   ProductListResponseSchema,
   UpdateProductPayload,
+  ProductAiAssistPayload,
+  ProductAiAssistResponseSchema,
 } from "../schemas/product.schema";
 
 export const productService = {
@@ -30,5 +32,12 @@ export const productService = {
   async deleteProduct(id: string) {
     const response = await apiClient.delete(`/admin/products/${id}`);
     return response;
+  },
+
+  async assistWithAi(data: ProductAiAssistPayload) {
+    const response = await apiClient.post("/admin/product-ai/assist", data, {
+      timeout: 300000,
+    });
+    return ProductAiAssistResponseSchema.parse(response).DT;
   },
 };

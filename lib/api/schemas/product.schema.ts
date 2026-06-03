@@ -1,6 +1,9 @@
 import { z } from "zod";
 import { createPaginatedResponseSchema, createResponseSchema } from "./base.schema";
 import { SeoSchema } from "./shared.schema";
+import { ProductAiTask, type ProductAiTaskType } from "./enums";
+
+export { ProductAiTask, type ProductAiTaskType };
 
 export const ProductTypeSchema = z.enum(["SIMPLE", "GROUPED", "EXTERNAL", "VARIABLE"]);
 export const ProductStatusSchema = z.enum([
@@ -227,6 +230,42 @@ export const ProductDetailItemSchema = ProductListItemSchema.extend({
 
 export const ProductDetailResponseSchema = createResponseSchema(ProductDetailItemSchema);
 
+export const ProductAiAssistPayloadSchema = z.object({
+  task: z.nativeEnum(ProductAiTask),
+  name: z.string().max(220).optional(),
+  slug: z.string().optional(),
+  shortDescription: z.string().optional(),
+  description: z.string().optional(),
+  focusKeyword: z.string().optional(),
+  productType: z.string().optional(),
+  tone: z.string().optional(),
+  categories: z.array(z.object({ title: z.string(), slug: z.string().optional(), url: z.string().optional() })).optional(),
+  tags: z.array(z.object({ title: z.string(), slug: z.string().optional(), url: z.string().optional() })).optional(),
+  brands: z.array(z.object({ title: z.string(), slug: z.string().optional(), url: z.string().optional() })).optional(),
+  originalPrice: z.number().optional().nullable(),
+  salePrice: z.number().optional().nullable(),
+  stockQuantity: z.number().optional().nullable(),
+  variants: z.array(z.any()).optional(),
+  images: z.array(z.string()).optional(),
+  extraContext: z.record(z.string(), z.any()).optional(),
+})
+
+export const ProductAiAssistResultSchema = z.object({
+  summary: z.string(),
+  name: z.string().nullable().optional(),
+  slug: z.string().nullable().optional(),
+  shortDescription: z.string().nullable().optional(),
+  description: z.string().nullable().optional(),
+  seo: z.object({
+    metaTitle: z.string().nullable().optional(),
+    metaDescription: z.string().nullable().optional(),
+    focusKeyword: z.string().nullable().optional(),
+  }).optional().nullable(),
+  improvements: z.array(z.string()).optional().default([]),
+})
+
+export const ProductAiAssistResponseSchema = createResponseSchema(ProductAiAssistResultSchema)
+
 // --- TypeScript types ---
 
 export type ProductMedia = z.infer<typeof ProductMediaSchema>;
@@ -238,3 +277,5 @@ export type CreateProductPayload = z.infer<typeof CreateProductPayloadSchema>;
 export type UpdateProductPayload = z.infer<typeof UpdateProductPayloadSchema>;
 export type ProductListResponse = z.infer<typeof ProductListResponseSchema>;
 export type ProductDetailResponse = z.infer<typeof ProductDetailResponseSchema>;
+export type ProductAiAssistPayload = z.infer<typeof ProductAiAssistPayloadSchema>;
+export type ProductAiAssistResult = z.infer<typeof ProductAiAssistResultSchema>;
