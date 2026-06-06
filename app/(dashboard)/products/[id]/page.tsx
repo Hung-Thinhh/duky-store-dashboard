@@ -2755,6 +2755,11 @@ export default function ProductDetailPage() {
       }
     } catch (error) {
       console.error("Failed to save product", error)
+      const message =
+        error instanceof Error && error.message.includes("Access denied")
+          ? "Bạn không có quyền thực hiện thao tác này. Vui lòng liên hệ quản trị viên."
+          : "Cập nhật sản phẩm thất bại. Vui lòng thử lại."
+      setDetailFeedback({ message, tone: "error" })
     } finally {
       setIsSaving(false)
     }
