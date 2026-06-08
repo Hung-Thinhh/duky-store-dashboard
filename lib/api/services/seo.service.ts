@@ -5,7 +5,7 @@ import {
 } from "../schemas/seo.schema";
 
 export const seoService = {
-  async getRedirects(params?: Record<string, any>) {
+  async getRedirects(params?: Record<string, unknown>) {
     const response = await apiClient.get("/admin/redirects", { params });
     return RedirectListResponseSchema.parse(response).DT;
   },

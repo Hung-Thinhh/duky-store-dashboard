@@ -27,6 +27,7 @@ import { type Media } from "@/lib/api/schemas/media.schema"
 import { mediaService } from "@/lib/api/services/media.service"
 import { cn } from "@/lib/utils"
 import { SeoMetadataForm, type SeoMetadataPayload } from "./seo-metadata-form"
+import { generateSeoFilename, slugify } from "@/lib/utils/slugify"
 
 type MediaPickerDialogProps = {
   open: boolean
@@ -63,6 +64,41 @@ function getReadableSize(size?: number | null) {
   const kb = size / 1024
   if (kb < 1024) return `${Math.round(kb)} KB`
   return `${(kb / 1024).toFixed(2)} MB`
+}
+
+const DEFAULT_METADATA_TEXT = "Duky Store"
+
+function getStoredExtension(file: File) {
+  return file.type === "image/svg+xml" ? ".svg" : ".webp"
+}
+
+function stripExtension(fileName: string) {
+  return fileName.replace(/\.[^.]+$/, "")
+}
+
+function looksUglyFileName(fileName: string) {
+  const base = slugify(stripExtension(fileName))
+  if (!base) return true
+  if (base === "media" || base === "image" || base === "img" || base === "photo") return true
+  if (/^[a-f0-9]{8}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{12}$/i.test(base)) return true
+  if (/^[a-f0-9]{16,}$/i.test(base)) return true
+  if (/^\d{8,}$/.test(base)) return true
+  return false
+}
+
+function buildDefaultMetadata(file: File): SeoMetadataPayload {
+  const extension = getStoredExtension(file)
+  const originalBase = slugify(stripExtension(file.name))
+  const needsBrandPrefix = looksUglyFileName(file.name) || !originalBase.startsWith("duky-store")
+  const fileNameSource = needsBrandPrefix
+    ? `duky-store ${originalBase || DEFAULT_METADATA_TEXT}`
+    : originalBase
+
+  return {
+    altText: DEFAULT_METADATA_TEXT,
+    title: DEFAULT_METADATA_TEXT,
+    fileName: generateSeoFilename(fileNameSource, extension),
+  }
 }
 
 export function MediaPickerDialog({
@@ -102,10 +138,10 @@ export function MediaPickerDialog({
   const prevOpenRef = React.useRef(false)
   const sentinelRef = React.useRef<HTMLDivElement>(null)
 
-  // Task 7.2: State for "just uploaded" media to show SEO form
-  const [justUploadedMedia, setJustUploadedMedia] = React.useState<Media | null>(null)
-  const [uploadedFileExtension, setUploadedFileExtension] = React.useState<string>(".jpg")
-  const [isSavingSeo, setIsSavingSeo] = React.useState(false)
+  // Local upload states (before uploading to server)
+  const [fileToUpload, setFileToUpload] = React.useState<File | null>(null)
+  const [previewUrl, setPreviewUrl] = React.useState<string | null>(null)
+  const [uploadMetadata, setUploadMetadata] = React.useState<SeoMetadataPayload | null>(null)
   const [seoError, setSeoError] = React.useState<string | null>(null)
 
   // Task 7.4: State for editing SEO in detail panel
@@ -129,26 +165,43 @@ export function MediaPickerDialog({
     [items, selectedMediaId]
   )
 
-  // Reset and fetch when dialog opens (open transitions from false → true)
+  // Reset when dialog state changes
   React.useEffect(() => {
-    if (open && !prevOpenRef.current) {
-      setSearchInput("")
-      setSelectedMediaIds([])
-      setJustUploadedMedia(null)
-      setSeoError(null)
-      setDetailSeoError(null)
-      // search("") resets internal state AND fetches page 1
-      hookSearch("")
+    if (open) {
+      if (!prevOpenRef.current) {
+        setSearchInput("")
+        setSelectedMediaIds([])
+        setSeoError(null)
+        setDetailSeoError(null)
+        setFileToUpload(null)
+        if (previewUrl) {
+          URL.revokeObjectURL(previewUrl)
+        }
+        setPreviewUrl(null)
+        setUploadMetadata(null)
+        // search("") resets internal state AND fetches page 1
+        hookSearch("")
+      }
+    } else {
+      if (prevOpenRef.current) {
+        setFileToUpload(null)
+        setUploadMetadata(null)
+        setSeoError(null)
+        if (previewUrl) {
+          URL.revokeObjectURL(previewUrl)
+          setPreviewUrl(null)
+        }
+      }
     }
     prevOpenRef.current = open
-  }, [open, hookSearch])
+  }, [open, hookSearch, previewUrl])
 
   React.useEffect(() => {
     if (!open) return
     setTab("library")
     shouldApplyInitialDraftRef.current = Boolean(initialDraft)
     setIsDraftDirty(false)
-  }, [open])
+  }, [open, initialDraft])
 
   React.useEffect(() => {
     if (!open || !initialSelectedUrl || !items.length) return
@@ -239,57 +292,68 @@ export function MediaPickerDialog({
     }
   }, [hasMore, isLoadingMore, isLoading, fetchNextPage])
 
-  const handleUpload = async (event: React.ChangeEvent<HTMLInputElement>) => {
+  const handleUploadSelect = (event: React.ChangeEvent<HTMLInputElement>) => {
     const file = event.target.files?.[0]
     if (!file) return
-    try {
-      setIsUploading(true)
-      const uploaded = await mediaService.uploadMedia(file)
 
-      // Get extension from the actual stored file (backend may have converted to webp)
-      const storedUrl = uploaded.url || ""
-      const storedExt = storedUrl.includes(".") ? `.${storedUrl.split(".").pop()?.toLowerCase() || "webp"}` : ".webp"
-      setUploadedFileExtension(storedExt)
-      setJustUploadedMedia(uploaded)
-      setSeoError(null)
-    } catch (error) {
-      console.error("Failed to upload media", error)
-    } finally {
-      setIsUploading(false)
-      event.target.value = ""
-    }
+    const objUrl = URL.createObjectURL(file)
+    setFileToUpload(file)
+    setPreviewUrl(objUrl)
+    setSeoError(null)
+
+    // Generate default metadata
+    const defaultMeta = buildDefaultMetadata(file)
+    setUploadMetadata(defaultMeta)
+
+    event.target.value = ""
   }
 
-  // Task 7.2: Handle SEO form save after upload
-  const handleSeoSave = async (data: SeoMetadataPayload) => {
-    if (!justUploadedMedia) return
+  const handleUploadSave = async (data: SeoMetadataPayload) => {
+    if (!fileToUpload) return
     try {
-      setIsSavingSeo(true)
+      setIsUploading(true)
       setSeoError(null)
-      const updated = await mediaService.updateMedia(justUploadedMedia.id, {
+
+      const uploaded = await mediaService.uploadMedia(fileToUpload, {
         altText: data.altText,
         title: data.title || undefined,
         fileName: data.fileName || undefined,
       })
+
+      // Clean up local preview URL
+      if (previewUrl) {
+        URL.revokeObjectURL(previewUrl)
+      }
+
+      setFileToUpload(null)
+      setPreviewUrl(null)
+      setUploadMetadata(null)
+
       // Transition back to library with the media selected
-      setJustUploadedMedia(null)
       setTab("library")
       hookSearch("")
-      setSelectedMediaIds([updated.id])
+      setSelectedMediaIds([uploaded.id])
     } catch (err: any) {
-      const message = err?.EM || err?.message || "Lưu thông tin SEO thất bại. Vui lòng thử lại."
+      const message = err?.EM || err?.message || "Tải ảnh thất bại. Kiểm tra ảnh hoặc thông tin rồi thử lại."
       setSeoError(message)
     } finally {
-      setIsSavingSeo(false)
+      setIsUploading(false)
     }
   }
 
-  const handleSkipSeo = () => {
-    if (!justUploadedMedia) return
-    setJustUploadedMedia(null)
-    setTab("library")
-    hookSearch("")
-    setSelectedMediaIds([justUploadedMedia.id])
+  const handleCancelUpload = () => {
+    if (previewUrl) {
+      URL.revokeObjectURL(previewUrl)
+    }
+    setFileToUpload(null)
+    setPreviewUrl(null)
+    setUploadMetadata(null)
+    setSeoError(null)
+  }
+
+  const handleSkipAndUpload = async () => {
+    if (!fileToUpload || !uploadMetadata) return
+    await handleUploadSave(uploadMetadata)
   }
 
   // Task 7.4: Handle detail panel SEO update
@@ -401,53 +465,62 @@ export function MediaPickerDialog({
 
         {tab === "upload" ? (
           <div className="p-8">
-            {justUploadedMedia ? (
+            {fileToUpload && previewUrl && uploadMetadata ? (
               <div className="grid grid-cols-1 gap-6 px-6 lg:grid-cols-2">
                 <div className="flex flex-col items-center justify-center">
                   <div className="w-full overflow-hidden rounded-xl border border-stone-200 bg-stone-100">
                     <img
-                      src={justUploadedMedia.url}
-                      alt={justUploadedMedia.altText || justUploadedMedia.filename}
-                      className="h-full max-h-[60vh] w-full object-contain p-2"
+                      src={previewUrl}
+                      alt={uploadMetadata.altText || fileToUpload.name}
+                      className="h-full max-h-[50vh] w-full object-contain p-2"
                     />
                   </div>
                   <div className="mt-3 w-full space-y-1 rounded-xl border border-stone-200 bg-white p-3 text-sm text-stone-600">
                     <div className="flex items-center gap-2">
                       <span className="font-medium text-stone-500">Tên gốc:</span>
-                      <span className="truncate text-stone-800">{justUploadedMedia.originalName || justUploadedMedia.filename}</span>
+                      <span className="truncate text-stone-800">{fileToUpload.name}</span>
                     </div>
                     <div className="flex items-center gap-2">
                       <span className="font-medium text-stone-500">Kích thước:</span>
-                      <span className="text-stone-800">{getReadableSize(justUploadedMedia.size)}</span>
+                      <span className="text-stone-800">{getReadableSize(fileToUpload.size)}</span>
                     </div>
                     <div className="flex items-center gap-2">
                       <span className="font-medium text-stone-500">Định dạng:</span>
-                      <span className="text-stone-800">{justUploadedMedia.mimeType}</span>
+                      <span className="text-stone-800">{fileToUpload.type}</span>
                     </div>
-                    {justUploadedMedia.width && justUploadedMedia.height ? (
-                      <div className="flex items-center gap-2">
-                        <span className="font-medium text-stone-500">Kích cỡ:</span>
-                        <span className="text-stone-800">{justUploadedMedia.width} × {justUploadedMedia.height}px</span>
-                      </div>
-                    ) : null}
                   </div>
                 </div>
                 <div className="space-y-4 overflow-y-auto px-4">
                   <h3 className="text-lg font-semibold text-stone-900">Thông tin SEO cho ảnh</h3>
                   <p className="text-sm text-stone-500">Thêm mô tả và tiêu đề giúp ảnh được tìm thấy tốt hơn trên Google.</p>
                   <SeoMetadataForm
-                    originalExtension={uploadedFileExtension}
-                    onSave={handleSeoSave}
-                    isSaving={isSavingSeo}
+                    originalExtension={getStoredExtension(fileToUpload)}
+                    initialAltText={uploadMetadata.altText}
+                    initialTitle={uploadMetadata.title}
+                    initialFileName={uploadMetadata.fileName}
+                    onSave={handleUploadSave}
+                    isSaving={isUploading}
                     error={seoError}
+                    submitLabel="Tải lên và lưu thông tin"
                   />
-                  <button
-                    type="button"
-                    onClick={handleSkipSeo}
-                    className="w-full text-center text-sm text-stone-500 hover:text-stone-700 underline mt-4"
-                  >
-                    Bỏ qua, thêm sau
-                  </button>
+                  <div className="flex flex-col gap-2 mt-4">
+                    <button
+                      type="button"
+                      onClick={handleSkipAndUpload}
+                      disabled={isUploading}
+                      className="w-full text-center text-sm text-stone-500 hover:text-stone-700 underline disabled:opacity-50"
+                    >
+                      Bỏ qua, tải lên với thông tin mặc định
+                    </button>
+                    <button
+                      type="button"
+                      onClick={handleCancelUpload}
+                      disabled={isUploading}
+                      className="w-full text-center text-sm text-red-500 hover:text-red-700 underline disabled:opacity-50"
+                    >
+                      Hủy, chọn file khác
+                    </button>
+                  </div>
                 </div>
               </div>
             ) : (
@@ -456,14 +529,14 @@ export function MediaPickerDialog({
                 <h3 className="mt-4 text-xl font-semibold text-stone-900">Thả file hoặc chọn file để tải lên</h3>
                 <Label htmlFor="unified-media-upload" className="mt-5">
                   <Button type="button" className="rounded-xl" asChild>
-                    <span>{isUploading ? "Đang upload..." : "Chọn file"}</span>
+                    <span>{isUploading ? "Đang xử lý..." : "Chọn file"}</span>
                   </Button>
                 </Label>
                 <input
                   id="unified-media-upload"
                   type="file"
                   accept="image/*"
-                  onChange={handleUpload}
+                  onChange={handleUploadSelect}
                   className="hidden"
                   disabled={isUploading}
                 />

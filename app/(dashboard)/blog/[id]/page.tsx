@@ -137,6 +137,7 @@ import type { Tag } from "@/lib/api/schemas/tag.schema"
 import { blogService } from "@/lib/api/services/blog.service"
 import { mediaService } from "@/lib/api/services/media.service"
 import { tagService } from "@/lib/api/services/tag.service"
+import { gscService } from "@/lib/api/services/gsc.service"
 import { cn } from "@/lib/utils"
 
 const NO_CATEGORY = "NO_CATEGORY"
@@ -4489,6 +4490,47 @@ export default function BlogPostDetailPage() {
   const [aiArticleType, setAiArticleType] = React.useState("Chia sẻ kinh nghiệm thời trang")
   const [isAiLoading, setIsAiLoading] = React.useState(false)
   const [isKeywordAiLoading, setIsKeywordAiLoading] = React.useState(false)
+  const [isIndexingLoading, setIsIndexingLoading] = React.useState(false)
+
+  const submitToGoogleIndexing = React.useCallback(async () => {
+    if (isNew || !postId) return
+
+    try {
+      setIsIndexingLoading(true)
+      const currentSlug = preview.slug || post?.slug
+      if (!currentSlug) {
+        setFeedback({
+          message: "Lỗi: Không tìm thấy URL slug của bài viết.",
+          tone: "error",
+        })
+        return
+      }
+
+      const postUrl = `/blog/${currentSlug}`
+      const result = await gscService.submitIndexing(postUrl, "URL_UPDATED")
+
+      if (result?.success) {
+        setFeedback({
+          message: "Đã gửi yêu cầu lập chỉ mục Google thành công!",
+          tone: "success",
+        })
+      } else {
+        setFeedback({
+          message: "Yêu cầu lập chỉ mục thất bại. Vui lòng cấu hình Google Indexing API.",
+          tone: "error",
+        })
+      }
+    } catch (error: any) {
+      console.error("Failed to request indexing:", error)
+      setFeedback({
+        message: error?.message || "Không thể yêu cầu lập chỉ mục từ Google Search Console.",
+        tone: "error",
+      })
+    } finally {
+      setIsIndexingLoading(false)
+    }
+  }, [isNew, postId, preview.slug, post?.slug, setFeedback])
+
   const [aiResult, setAiResult] = React.useState<BlogAiAssistResult | null>(null)
   const [aiMediaLibrary, setAiMediaLibrary] = React.useState<Media[]>([])
   const aiAllowsFullContent =
@@ -5040,10 +5082,40 @@ export default function BlogPostDetailPage() {
 
       setAiResult(result)
       setAiMediaLibrary(await fetchAiSelectedMedia(result))
-      setFeedback({
-        message: "AI đã tạo gợi ý. Kiểm tra rồi chọn phần muốn áp dụng.",
-        tone: "success",
-      })
+
+      // Detect when the AI returns nothing actionable vs article already optimized
+      const hasApplicableContent =
+        aiTask === "OUTLINE"
+          ? Boolean(result.outline?.length)
+          : Boolean(result.title || result.excerpt || result.contentHtml || result.seo)
+
+      if (!hasApplicableContent) {
+        // Check if this is genuinely "already optimized" or if AI just failed to produce output
+        const currentScore = seoResult?.score ?? 0
+        const hasAiFeedback = Boolean(result.summary || result.improvements?.length)
+
+        if (currentScore >= 90 || hasAiFeedback) {
+          // Article is genuinely well-optimized — AI confirmed with summary/improvements
+          setFeedback({
+            message: result.summary
+              ? `\u2705 ${result.summary}`
+              : `\u2705 B\u00e0i vi\u1ebft \u0111\u00e3 \u0111\u1ea1t ${currentScore} \u0111i\u1ec3m SEO, kh\u00f4ng c\u1ea7n thay \u0111\u1ed5i th\u00eam.`,
+            tone: "success",
+          })
+        } else {
+          // AI returned empty but score is low — something unexpected
+          setFeedback({
+            message:
+              "\u26a0\ufe0f AI \u0111\u00e3 ph\u00e2n t\u00edch xong nh\u01b0ng kh\u00f4ng t\u1ea1o \u0111\u01b0\u1ee3c g\u1ee3i \u00fd c\u1ee5 th\u1ec3. Th\u1eed l\u1ea1i ho\u1eb7c ki\u1ec3m tra n\u1ed9i dung b\u00e0i vi\u1ebft.",
+            tone: "error",
+          })
+        }
+      } else {
+        setFeedback({
+          message: "AI \u0111\u00e3 t\u1ea1o g\u1ee3i \u00fd. Ki\u1ec3m tra r\u1ed3i ch\u1ecdn ph\u1ea7n mu\u1ed1n \u00e1p d\u1ee5ng.",
+          tone: "success",
+        })
+      }
     } catch (error) {
       console.error("Failed to generate blog AI suggestions", error)
       const message =
@@ -5974,6 +6046,38 @@ export default function BlogPostDetailPage() {
                     </div>
                   ) : null}
 
+                  {/* Notice when AI has no actionable changes */}
+                  {(() => {
+                    const isApplyDisabled =
+                      aiTask === "OUTLINE"
+                        ? !aiResult.outline?.length
+                        : !aiResult.title && !aiResult.excerpt && !aiContentHtml && !aiResult.seo
+                    if (!isApplyDisabled) return null
+
+                    const currentScore = seoResult?.score ?? 0
+                    const hasAiFeedback = Boolean(aiResult.summary || aiResult.improvements?.length)
+
+                    // Genuinely well-optimized: high score or AI gave meaningful feedback
+                    if (currentScore >= 90 || hasAiFeedback) {
+                      return (
+                        <div className="rounded-xl border border-emerald-200 bg-emerald-50 px-3 py-2 text-xs leading-5 text-emerald-800">
+                          ✅ Bài viết đã đạt {currentScore} điểm SEO.
+                          {aiResult.improvements?.length
+                            ? " Xem gợi ý cải thiện ở trên để tham khảo."
+                            : " Không cần thay đổi thêm."}
+                        </div>
+                      )
+                    }
+
+                    // Low score but AI returned nothing — unexpected
+                    return (
+                      <div className="rounded-xl border border-amber-200 bg-amber-50 px-3 py-2 text-xs leading-5 text-amber-800">
+                        ⚠️ AI không tạo được gợi ý cụ thể cho bài này (điểm SEO hiện tại: {currentScore}).
+                        Thử chạy lại hoặc kiểm tra nội dung bài viết.
+                      </div>
+                    )
+                  })()}
+
                   <div className="grid grid-cols-2 gap-2">
                     <Button
                       type="button"
@@ -6082,6 +6186,26 @@ export default function BlogPostDetailPage() {
                     {formatDate(post?.updatedAt)}
                   </span>
                 </div>
+
+                {selectedStatus === ContentStatus.PUBLISHED && !isNew && (
+                  <div className="pt-2 border-t border-stone-100 mt-1">
+                    <Button
+                      type="button"
+                      variant="outline"
+                      size="sm"
+                      className="w-full gap-2 rounded-xl border-orange-200 text-orange-700 bg-orange-50/50 hover:bg-orange-50 hover:text-orange-800 text-xs"
+                      onClick={submitToGoogleIndexing}
+                      disabled={isIndexingLoading}
+                    >
+                      {isIndexingLoading ? (
+                        <IconLoader2 className="size-3.5 animate-spin" />
+                      ) : (
+                        <IconSeo className="size-3.5" />
+                      )}
+                      Gửi Google Index
+                    </Button>
+                  </div>
+                )}
               </div>
             </div>
           </Panel>

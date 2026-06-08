@@ -27,6 +27,7 @@ import {
   IconChevronDown,
   IconUserCircle,
   IconLogout,
+  IconSearch,
 } from "@tabler/icons-react"
 
 import {
@@ -112,6 +113,11 @@ const navGroups = [
   {
     label: "SEO",
     items: [
+      {
+        title: "Google Search Console",
+        icon: IconSearch,
+        href: "/search-console",
+      },
       { title: "Redirect 301", icon: IconRoute, href: "/redirects" },
       { title: "Sitemap / Robots", icon: IconSitemap, href: "/sitemap" },
     ],
@@ -142,8 +148,9 @@ const navGroups = [
 
 export function AppSidebar() {
   const pathname = usePathname()
-  const [user, setUser] =
-    React.useState<ReturnType<typeof authService.getUser>>(null)
+  const [user] = React.useState<ReturnType<typeof authService.getUser>>(() =>
+    authService.getUser()
+  )
   const [isProfileOpen, setIsProfileOpen] = React.useState(false)
   const [isPasswordOpen, setIsPasswordOpen] = React.useState(false)
   const [isSavingPassword, setIsSavingPassword] = React.useState(false)
@@ -156,10 +163,6 @@ export function AppSidebar() {
     newPassword: "",
     confirmPassword: "",
   })
-
-  React.useEffect(() => {
-    setUser(authService.getUser())
-  }, [])
 
   const initials =
     user?.fullName

@@ -96,6 +96,7 @@ import { mediaService } from "@/lib/api/services/media.service"
 import { productAttributeService } from "@/lib/api/services/product-attribute.service"
 import { productService } from "@/lib/api/services/product.service"
 import { variantService } from "@/lib/api/services/variant.service"
+import { gscService } from "@/lib/api/services/gsc.service"
 import { cn } from "@/lib/utils"
 import { TiptapEditor } from "@/components/ui/tiptap-editor"
 import { MediaPickerDialog } from "@/components/media/media-picker-dialog"
@@ -1617,6 +1618,7 @@ export default function ProductDetailPage() {
 
   const [isLoading, setIsLoading] = React.useState(!isNew)
   const [isSaving, setIsSaving] = React.useState(false)
+  const [isIndexingLoading, setIsIndexingLoading] = React.useState(false)
   const [featuredImageSrc, setFeaturedImageSrc] = React.useState("")
   const [galleryImages, setGalleryImages] = React.useState<string[]>([])
   const [galleryImageIds, setGalleryImageIds] = React.useState<string[]>([])
@@ -1657,9 +1659,6 @@ export default function ProductDetailPage() {
   const [isLoadingCategories, setIsLoadingCategories] = React.useState(true)
   const [customTags, setCustomTags] = React.useState<string[]>([])
   const [newTag, setNewTag] = React.useState("")
-  const featuredImageInputRef = React.useRef<HTMLInputElement>(null)
-  const galleryInputRef = React.useRef<HTMLInputElement>(null)
-  const galleryReplaceIndexRef = React.useRef<number | null>(null)
 
   // Product AI States
   const [aiTask, setAiTask] = React.useState<ProductAiTaskType>(ProductAiTask.SEO)
@@ -2324,6 +2323,45 @@ export default function ProductDetailPage() {
     })
   }
 
+  const submitToGoogleIndexing = React.useCallback(async () => {
+    if (isNew || !params.id) return
+
+    try {
+      setIsIndexingLoading(true)
+      const currentSlug = getValues("slug")
+      if (!currentSlug) {
+        setToast({
+          message: "Lỗi: Không tìm thấy URL slug của sản phẩm.",
+          tone: "error",
+        })
+        return
+      }
+
+      const productUrl = `/san-pham/${currentSlug}`
+      const result = await gscService.submitIndexing(productUrl, "URL_UPDATED")
+
+      if (result?.success) {
+        setToast({
+          message: "Đã gửi yêu cầu lập chỉ mục Google thành công!",
+          tone: "success",
+        })
+      } else {
+        setToast({
+          message: "Yêu cầu lập chỉ mục thất bại. Vui lòng cấu hình Google Indexing API.",
+          tone: "error",
+        })
+      }
+    } catch (error: any) {
+      console.error("Failed to request indexing:", error)
+      setToast({
+        message: error?.message || "Không thể yêu cầu lập chỉ mục từ Google Search Console.",
+        tone: "error",
+      })
+    } finally {
+      setIsIndexingLoading(false)
+    }
+  }, [isNew, params.id, getValues])
+
   // Tự động sinh Slug và SKU từ tên sản phẩm khi thêm mới
   React.useEffect(() => {
     if (!isNew || !productName) return
@@ -2789,37 +2827,6 @@ export default function ProductDetailPage() {
     }
   }
 
-  const handleFeaturedImageFile = async (
-    event: React.ChangeEvent<HTMLInputElement>
-  ) => {
-    const file = event.target.files?.[0]
-    event.target.value = ""
-    if (!file) return
-
-    const previewSrc = await readFileAsDataUrl(file)
-    if (previewSrc) {
-      setFeaturedImageSrc(previewSrc)
-    }
-
-    try {
-      const uploadedMedia = await mediaService.uploadMedia(file)
-      const uploadedId = getUploadedMediaId(uploadedMedia)
-      const uploadedUrl = getUploadedMediaUrl(uploadedMedia)
-
-      if (uploadedUrl) {
-        setFeaturedImageSrc(uploadedUrl)
-      }
-      setValue("thumbnailMediaId", uploadedId || null, { shouldDirty: true })
-    } catch (error) {
-      console.error("Failed to upload featured image", error)
-      setValue("thumbnailMediaId", null, { shouldDirty: true })
-    }
-  }
-
-  const openGalleryPicker = (index?: number) => {
-    galleryReplaceIndexRef.current = typeof index === "number" ? index : null
-    galleryInputRef.current?.click()
-  }
 
   const openMediaPicker = (
     mode: MediaPickerMode,
@@ -2906,59 +2913,7 @@ export default function ProductDetailPage() {
     setMediaPickerOpen(false)
   }
 
-  const handleGalleryFiles = (event: React.ChangeEvent<HTMLInputElement>) => {
-    const files = Array.from(event.target.files ?? []).slice(
-      0,
-      gallerySlots.length
-    )
-    event.target.value = ""
-    if (!files.length) return
 
-    Promise.all(
-      files.map(async (file) => {
-        const previewSrc = await readFileAsDataUrl(file)
-
-        try {
-          const uploadedMedia = await mediaService.uploadMedia(file)
-          const uploadedId = getUploadedMediaId(uploadedMedia)
-          const uploadedUrl = getUploadedMediaUrl(uploadedMedia)
-
-          return {
-            id: uploadedId,
-            src: uploadedUrl || previewSrc,
-          }
-        } catch (error) {
-          console.error("Failed to upload gallery image", error)
-          return {
-            id: "",
-            src: previewSrc,
-          }
-        }
-      })
-    ).then((items) => {
-      const nextItems = items.filter((item) => item.src)
-      if (!nextItems.length) return
-
-      const next = [...galleryImages].slice(0, gallerySlots.length)
-      const nextIds = [...galleryImageIds].slice(0, gallerySlots.length)
-      const replaceIndex = galleryReplaceIndexRef.current
-
-      if (replaceIndex !== null) {
-        next[replaceIndex] = nextItems[0].src
-        nextIds[replaceIndex] = nextItems[0].id
-        syncGallery(next, nextIds)
-        return
-      }
-
-      nextItems.forEach((item) => {
-        if (next.length >= gallerySlots.length) return
-        next.push(item.src)
-        nextIds.push(item.id)
-      })
-
-      syncGallery(next, nextIds)
-    })
-  }
 
   const moveGalleryImage = (index: number, direction: -1 | 1) => {
     const nextIndex = index + direction
@@ -3324,21 +3279,7 @@ export default function ProductDetailPage() {
         title={mediaPickerMode === "featured" ? "Chọn ảnh đại diện" : "Chọn ảnh Gallery"}
       />
 
-      <input
-        ref={featuredImageInputRef}
-        type="file"
-        accept="image/*"
-        onChange={handleFeaturedImageFile}
-        className="hidden"
-      />
-      <input
-        ref={galleryInputRef}
-        type="file"
-        accept="image/*"
-        multiple
-        onChange={handleGalleryFiles}
-        className="hidden"
-      />
+
 
       <div className="sticky top-0 z-30 -mx-2 -mt-2 flex flex-col gap-4 border-b border-orange-100/70 bg-background/95 backdrop-blur-md px-2 pt-3 pb-3 shadow-sm md:-mx-4 md:flex-row md:items-center md:justify-between md:px-4 md:pt-4 md:pb-4 transition-all">
         <div className="flex items-center gap-4">
@@ -4919,11 +4860,25 @@ export default function ProductDetailPage() {
               </div>
 
               {!isNew && (
-                <div>
+                <div className="flex flex-col gap-2">
                   <Button
                     type="button"
                     variant="outline"
-                    className="w-full rounded-xl text-destructive hover:bg-destructive/5 hover:text-destructive hover:border-destructive/30"
+                    className="w-full rounded-xl border-orange-200 text-orange-700 bg-orange-50/50 hover:bg-orange-50 hover:text-orange-800 text-xs h-9"
+                    onClick={submitToGoogleIndexing}
+                    disabled={isIndexingLoading}
+                  >
+                    {isIndexingLoading ? (
+                      <IconLoader2 className="mr-2 size-4 animate-spin" />
+                    ) : (
+                      <IconSeo className="mr-2 size-4" />
+                    )}
+                    Yêu cầu lập chỉ mục
+                  </Button>
+                  <Button
+                    type="button"
+                    variant="outline"
+                    className="w-full rounded-xl text-destructive hover:bg-destructive/5 hover:text-destructive hover:border-destructive/30 text-xs h-9"
                     onClick={deleteProduct}
                     disabled={isSaving}
                   >
