@@ -144,6 +144,11 @@ export function MediaPickerDialog({
   const [uploadMetadata, setUploadMetadata] = React.useState<SeoMetadataPayload | null>(null)
   const [seoError, setSeoError] = React.useState<string | null>(null)
 
+  // Multiple files upload states
+  const [filesToUpload, setFilesToUpload] = React.useState<File[]>([])
+  const [previewUrls, setPreviewUrls] = React.useState<string[]>([])
+  const [uploadMetadatas, setUploadMetadatas] = React.useState<SeoMetadataPayload[]>([])
+
   // Task 7.4: State for editing SEO in detail panel
   const [isUpdatingDetail, setIsUpdatingDetail] = React.useState(false)
   const [detailSeoError, setDetailSeoError] = React.useState<string | null>(null)
@@ -179,6 +184,13 @@ export function MediaPickerDialog({
         }
         setPreviewUrl(null)
         setUploadMetadata(null)
+
+        // Reset multiple upload states
+        setFilesToUpload([])
+        previewUrls.forEach((url) => URL.revokeObjectURL(url))
+        setPreviewUrls([])
+        setUploadMetadatas([])
+
         // search("") resets internal state AND fetches page 1
         hookSearch("")
       }
@@ -191,10 +203,16 @@ export function MediaPickerDialog({
           URL.revokeObjectURL(previewUrl)
           setPreviewUrl(null)
         }
+
+        // Reset multiple upload states
+        setFilesToUpload([])
+        previewUrls.forEach((url) => URL.revokeObjectURL(url))
+        setPreviewUrls([])
+        setUploadMetadatas([])
       }
     }
     prevOpenRef.current = open
-  }, [open, hookSearch, previewUrl])
+  }, [open, hookSearch, previewUrl, previewUrls])
 
   React.useEffect(() => {
     if (!open) return
@@ -293,19 +311,74 @@ export function MediaPickerDialog({
   }, [hasMore, isLoadingMore, isLoading, fetchNextPage])
 
   const handleUploadSelect = (event: React.ChangeEvent<HTMLInputElement>) => {
-    const file = event.target.files?.[0]
-    if (!file) return
+    const files = event.target.files ? Array.from(event.target.files) : []
+    if (files.length === 0) return
 
-    const objUrl = URL.createObjectURL(file)
-    setFileToUpload(file)
-    setPreviewUrl(objUrl)
-    setSeoError(null)
+    if (multiple) {
+      const urls = files.map((file) => URL.createObjectURL(file))
+      const metas = files.map((file) => buildDefaultMetadata(file))
+      setFilesToUpload(files)
+      setPreviewUrls(urls)
+      setUploadMetadatas(metas)
+      setSeoError(null)
+    } else {
+      const file = files[0]
+      if (!file) return
+      const objUrl = URL.createObjectURL(file)
+      setFileToUpload(file)
+      setPreviewUrl(objUrl)
+      setSeoError(null)
 
-    // Generate default metadata
-    const defaultMeta = buildDefaultMetadata(file)
-    setUploadMetadata(defaultMeta)
+      // Generate default metadata
+      const defaultMeta = buildDefaultMetadata(file)
+      setUploadMetadata(defaultMeta)
+    }
 
     event.target.value = ""
+  }
+
+  const handleMultipleUploadSave = async () => {
+    if (filesToUpload.length === 0) return
+    try {
+      setIsUploading(true)
+      setSeoError(null)
+
+      const uploadPromises = filesToUpload.map((file, idx) => {
+        const meta = uploadMetadatas[idx]
+        return mediaService.uploadMedia(file, {
+          altText: meta?.altText || DEFAULT_METADATA_TEXT,
+          title: meta?.title || undefined,
+          fileName: meta?.fileName || undefined,
+        })
+      })
+
+      const uploadedFiles = await Promise.all(uploadPromises)
+
+      // Clean up local preview URLs
+      previewUrls.forEach((url) => URL.revokeObjectURL(url))
+
+      setFilesToUpload([])
+      setPreviewUrls([])
+      setUploadMetadatas([])
+
+      // Transition back to library and select all newly uploaded media
+      setTab("library")
+      hookSearch("")
+      setSelectedMediaIds(uploadedFiles.map((f) => f.id))
+    } catch (err: any) {
+      const message = err?.EM || err?.message || "Tải một hoặc nhiều ảnh thất bại. Vui lòng thử lại."
+      setSeoError(message)
+    } finally {
+      setIsUploading(false)
+    }
+  }
+
+  const handleCancelMultipleUpload = () => {
+    previewUrls.forEach((url) => URL.revokeObjectURL(url))
+    setFilesToUpload([])
+    setPreviewUrls([])
+    setUploadMetadatas([])
+    setSeoError(null)
   }
 
   const handleUploadSave = async (data: SeoMetadataPayload) => {
@@ -465,7 +538,73 @@ export function MediaPickerDialog({
 
         {tab === "upload" ? (
           <div className="p-8">
-            {fileToUpload && previewUrl && uploadMetadata ? (
+            {multiple && filesToUpload.length > 0 ? (
+              <div className="space-y-6 max-h-[60vh] overflow-y-auto pr-2">
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                  {filesToUpload.map((file, idx) => {
+                    const preview = previewUrls[idx]
+                    const meta = uploadMetadatas[idx]
+                    return (
+                      <div key={idx} className="flex gap-4 p-4 rounded-xl border border-stone-200 bg-white">
+                        <div className="size-24 shrink-0 rounded-lg overflow-hidden border border-stone-100 bg-stone-50">
+                          <img src={preview} alt="preview" className="h-full w-full object-contain" />
+                        </div>
+                        <div className="flex-1 min-w-0 space-y-2">
+                          <p className="truncate text-xs font-semibold text-stone-700" title={file.name}>
+                            {file.name}
+                          </p>
+                          <p className="text-[10px] text-stone-400">
+                            {getReadableSize(file.size)}
+                          </p>
+                          <div className="space-y-1.5">
+                            <label className="text-[10px] font-medium text-stone-500">Alt text (SEO)</label>
+                            <Input
+                              value={meta?.altText || ""}
+                              onChange={(e) => {
+                                const nextMetas = [...uploadMetadatas]
+                                if (nextMetas[idx]) {
+                                  nextMetas[idx] = { ...nextMetas[idx], altText: e.target.value }
+                                  setUploadMetadatas(nextMetas)
+                                }
+                              }}
+                              placeholder="Mô tả ảnh..."
+                              className="h-7 text-xs rounded-lg px-2"
+                            />
+                          </div>
+                        </div>
+                      </div>
+                    )
+                  })}
+                </div>
+                {seoError && <p className="text-sm text-red-500">{seoError}</p>}
+                <div className="flex justify-end gap-3 border-t pt-4">
+                  <Button
+                    type="button"
+                    variant="outline"
+                    onClick={handleCancelMultipleUpload}
+                    disabled={isUploading}
+                    className="rounded-xl"
+                  >
+                    Hủy, chọn lại
+                  </Button>
+                  <Button
+                    type="button"
+                    onClick={handleMultipleUploadSave}
+                    disabled={isUploading}
+                    className="rounded-xl bg-orange-600 hover:bg-orange-700 text-white"
+                  >
+                    {isUploading ? (
+                      <>
+                        <IconLoader2 className="mr-2 size-4 animate-spin" />
+                        Đang tải lên...
+                      </>
+                    ) : (
+                      `Tải lên ${filesToUpload.length} ảnh`
+                    )}
+                  </Button>
+                </div>
+              </div>
+            ) : fileToUpload && previewUrl && uploadMetadata ? (
               <div className="grid grid-cols-1 gap-6 px-6 lg:grid-cols-2">
                 <div className="flex flex-col items-center justify-center">
                   <div className="w-full overflow-hidden rounded-xl border border-stone-200 bg-stone-100">
@@ -536,6 +675,7 @@ export function MediaPickerDialog({
                   id="unified-media-upload"
                   type="file"
                   accept="image/*"
+                  multiple={multiple}
                   onChange={handleUploadSelect}
                   className="hidden"
                   disabled={isUploading}
