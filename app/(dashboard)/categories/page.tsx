@@ -519,7 +519,10 @@ export default function CategoriesPage() {
                     </Badge>
                   </TableCell>
                   <TableCell className="text-muted-foreground text-sm">
-                    {category.updatedAt ?? category.createdAt ? new Date(category.updatedAt ?? category.createdAt).toLocaleDateString("vi-VN") : "N/A"}
+                    {(() => {
+                      const dateStr = category.updatedAt || category.createdAt
+                      return dateStr ? new Date(dateStr).toLocaleDateString("vi-VN") : "N/A"
+                    })()}
                   </TableCell>
                   <TableCell className="text-right">
                     <DropdownMenu>
