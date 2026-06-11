@@ -26,6 +26,7 @@ export const ProductVariantSchema = z.object({
 
 export const CreateProductVariantPayloadSchema = ProductVariantSchema.omit({
   id: true,
+  productId: true,
   product: true,
   inventory: true,
   createdAt: true,

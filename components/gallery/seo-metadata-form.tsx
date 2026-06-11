@@ -54,7 +54,7 @@ export function GalleryMetadataForm({
 }: GalleryMetadataFormProps) {
   const [altText, setAltText] = React.useState(initialAltText)
   const [title, setTitle] = React.useState(initialTitle)
-  const [seoFilename, setSeoFilename] = React.useState(initialFileName)
+  const [seoFilename, setSeoFilename] = React.useState(initialFileName.replace(/\.[^.]+$/, ""))
   const [forMale, setForMale] = React.useState<boolean | undefined>(
     initialForMale === null ? undefined : initialForMale
   )
@@ -70,8 +70,8 @@ export function GalleryMetadataForm({
     const fallbackText = defaultMetadataText.trim() || "Duky Store"
     const resolvedAltText = altText.trim() || fallbackText
     const resolvedTitle = title.trim() || fallbackText
-    const fileName =
-      seoFilename || generateSeoFilename(resolvedAltText, originalExtension)
+    const baseName = seoFilename.trim() || generateSeoFilename(resolvedAltText, "").replace(/\.[^.]+$/, "")
+    const fileName = `${baseName.replace(/\.[^.]+$/, "")}${originalExtension}`
 
     return {
       altText: resolvedAltText,
@@ -98,7 +98,7 @@ export function GalleryMetadataForm({
     debounceRef.current = setTimeout(() => {
       const source = altText.trim() || title.trim()
       setSeoFilename(
-        source ? generateSeoFilename(source, originalExtension) : ""
+        source ? generateSeoFilename(source, "").replace(/\.[^.]+$/, "") : ""
       )
     }, 300)
 
@@ -203,12 +203,16 @@ export function GalleryMetadataForm({
 
       <div className="space-y-2">
         <Label htmlFor="seo-filename">Tên file SEO</Label>
-        <Input
-          id="seo-filename"
-          value={seoFilename}
-          onChange={handleFilenameChange}
-          placeholder={`gallery-image${originalExtension}`}
-        />
+        <div className="flex items-center gap-1.5">
+          <Input
+            id="seo-filename"
+            value={seoFilename}
+            onChange={handleFilenameChange}
+            placeholder="gallery-image"
+            className="flex-1"
+          />
+          <span className="text-sm font-semibold text-stone-500">{originalExtension}</span>
+        </div>
         <p className="text-xs text-stone-500">
           Preview:{" "}
           <span className="font-mono text-stone-700">{previewFilename}</span>

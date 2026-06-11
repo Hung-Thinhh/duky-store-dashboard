@@ -892,7 +892,7 @@ export default function ProductsPage() {
               </SelectTrigger>
               <SelectContent>
                 <SelectGroup>
-                  <SelectItem value="DEFAULT">Ngày tạo</SelectItem>
+                  <SelectItem value="DEFAULT">Ngày cập nhật</SelectItem>
                   <SelectItem value="ASC">Giá thấp đến cao</SelectItem>
                   <SelectItem value="DESC">Giá cao đến thấp</SelectItem>
                 </SelectGroup>

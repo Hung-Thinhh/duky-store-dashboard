@@ -8,6 +8,7 @@ import {
   IconLoader2,
   IconPhoto,
   IconSearch,
+  IconTrash,
   IconUpload,
 } from "@tabler/icons-react"
 
@@ -36,6 +37,7 @@ type MediaPickerDialogProps = {
   onSelectUrl?: (url: string) => void
   title?: string
   initialSelectedUrl?: string | null
+  initialSelectedId?: string | null
   initialDraft?: Partial<MediaDraft> | null
   captionOnly?: boolean
   lockDraftOnSelection?: boolean
@@ -108,6 +110,7 @@ export function MediaPickerDialog({
   onSelectUrl,
   title = "Thêm media",
   initialSelectedUrl = null,
+  initialSelectedId = null,
   initialDraft = null,
   captionOnly = false,
   lockDraftOnSelection = false,
@@ -130,6 +133,8 @@ export function MediaPickerDialog({
   const [tab, setTab] = React.useState<MediaTab>("library")
   const [selectedMediaIds, setSelectedMediaIds] = React.useState<string[]>([])
   const selectedMediaId = selectedMediaIds[selectedMediaIds.length - 1] ?? null
+  const [extraSelectedItem, setExtraSelectedItem] = React.useState<Media | null>(null)
+  const fetchedRef = React.useRef<string | null>(null)
   const [draft, setDraft] = React.useState<MediaDraft>(emptyDraft)
   const [isUploading, setIsUploading] = React.useState(false)
   const [urlInput, setUrlInput] = React.useState("")
@@ -156,6 +161,26 @@ export function MediaPickerDialog({
   const [detailTitle, setDetailTitle] = React.useState("")
   const [detailFileName, setDetailFileName] = React.useState("")
 
+  const [isDeleting, setIsDeleting] = React.useState(false)
+
+  const handleDeleteMedia = async () => {
+    if (!selectedMedia) return
+    const confirmDelete = window.confirm("Bạn có chắc chắn muốn xóa ảnh này vĩnh viễn khỏi thư viện?")
+    if (!confirmDelete) return
+
+    try {
+      setIsDeleting(true)
+      await mediaService.deleteMedia(selectedMedia.id)
+      setSelectedMediaIds([])
+      hookSearch(searchQuery || "")
+    } catch (err: any) {
+      const message = err?.EM || err?.message || "Xóa ảnh thất bại. Vui lòng thử lại."
+      alert(message)
+    } finally {
+      setIsDeleting(false)
+    }
+  }
+
   // Wrap hookSearch to also reset selection state
   const handleSearch = React.useCallback(
     (query: string) => {
@@ -165,10 +190,12 @@ export function MediaPickerDialog({
     [hookSearch]
   )
 
-  const selectedMedia = React.useMemo(
-    () => items.find((item) => item.id === selectedMediaId) ?? null,
-    [items, selectedMediaId]
-  )
+  const selectedMedia = React.useMemo(() => {
+    if (extraSelectedItem && selectedMediaId === extraSelectedItem.id) {
+      return extraSelectedItem
+    }
+    return items.find((item) => item.id === selectedMediaId) ?? null
+  }, [items, selectedMediaId, extraSelectedItem])
 
   // Reset when dialog state changes
   React.useEffect(() => {
@@ -176,6 +203,7 @@ export function MediaPickerDialog({
       if (!prevOpenRef.current) {
         setSearchInput("")
         setSelectedMediaIds([])
+        setExtraSelectedItem(null)
         setSeoError(null)
         setDetailSeoError(null)
         setFileToUpload(null)
@@ -221,13 +249,59 @@ export function MediaPickerDialog({
     setIsDraftDirty(false)
   }, [open, initialDraft])
 
+  // Effect 1: Immediately fetch single media by ID when dialog opens
   React.useEffect(() => {
-    if (!open || !initialSelectedUrl || !items.length) return
-    const matched = items.find((item) => item.url === initialSelectedUrl || item.secureUrl === initialSelectedUrl)
+    if (!open) {
+      fetchedRef.current = null
+      return
+    }
+    if (!initialSelectedId || fetchedRef.current === initialSelectedId) return
+
+    fetchedRef.current = initialSelectedId
+
+    const fetchById = async () => {
+      try {
+        const media = await mediaService.getMedia(initialSelectedId)
+        if (media) {
+          setExtraSelectedItem(media)
+          setSelectedMediaIds([media.id])
+        }
+      } catch (err) {
+        console.warn("Failed to fetch media by id", err)
+      }
+    }
+
+    fetchById()
+  }, [open, initialSelectedId])
+
+  // Effect 2: URL-only fallback — match against loaded items when no ID is available
+  React.useEffect(() => {
+    if (!open || initialSelectedId || !initialSelectedUrl || !items.length) return
+    if (fetchedRef.current === initialSelectedUrl) return
+
+    const normalizeUrlPath = (urlStr: string) => {
+      if (!urlStr) return ""
+      try {
+        if (urlStr.startsWith("http://") || urlStr.startsWith("https://")) {
+          const parsed = new URL(urlStr)
+          return parsed.pathname.toLowerCase()
+        }
+        return urlStr.toLowerCase()
+      } catch {
+        return urlStr.toLowerCase()
+      }
+    }
+    const normSelected = normalizeUrlPath(initialSelectedUrl)
+    const matched = items.find((item) => {
+      if (item.url && normalizeUrlPath(item.url) === normSelected) return true
+      if (item.secureUrl && normalizeUrlPath(item.secureUrl) === normSelected) return true
+      return false
+    })
     if (matched) {
       setSelectedMediaIds([matched.id])
+      fetchedRef.current = initialSelectedUrl
     }
-  }, [open, initialSelectedUrl, items])
+  }, [open, initialSelectedId, initialSelectedUrl, items])
 
   const prevSelectedMediaIdRef = React.useRef<string | null>(null)
 
@@ -277,15 +351,20 @@ export function MediaPickerDialog({
     // Task 7.4: Populate detail panel edit fields
     setDetailAltText(selectedMedia.altText ?? "")
     setDetailTitle(selectedMedia.title ?? "")
-    setDetailFileName(selectedMedia.fileName ?? selectedMedia.filename ?? "")
+    setDetailFileName((selectedMedia.fileName ?? selectedMedia.filename ?? "").replace(/\.[^.]+$/, ""))
     setDetailSeoError(null)
   }, [captionOnly, initialDraft, isDraftDirty, lockDraftOnSelection, selectedMedia])
 
   // Orphaned selection check: reset if selectedMediaId is not in items
   React.useEffect(() => {
     if (selectedMediaIds.length === 0 || items.length === 0 || isLoading) return
-    setSelectedMediaIds((prev) => prev.filter((id) => items.some((item) => item.id === id)))
-  }, [items, isLoading])
+    setSelectedMediaIds((prev) =>
+      prev.filter((id) => {
+        if (extraSelectedItem && extraSelectedItem.id === id) return true
+        return items.some((item) => item.id === id)
+      })
+    )
+  }, [items, isLoading, extraSelectedItem])
 
   // IntersectionObserver for infinite scroll sentinel
   React.useEffect(() => {
@@ -345,10 +424,14 @@ export function MediaPickerDialog({
 
       const uploadPromises = filesToUpload.map((file, idx) => {
         const meta = uploadMetadatas[idx]
+        const ext = getStoredExtension(file)
+        const baseName = meta?.fileName ? meta.fileName.replace(/\.[^.]+$/, "") : ""
+        const finalFileName = baseName ? `${baseName}${ext}` : undefined
+
         return mediaService.uploadMedia(file, {
           altText: meta?.altText || DEFAULT_METADATA_TEXT,
           title: meta?.title || undefined,
-          fileName: meta?.fileName || undefined,
+          fileName: finalFileName,
         })
       })
 
@@ -435,11 +518,19 @@ export function MediaPickerDialog({
     try {
       setIsUpdatingDetail(true)
       setDetailSeoError(null)
+      const originalFullName = selectedMedia.fileName ?? selectedMedia.filename ?? ""
+      const dotIndex = originalFullName.lastIndexOf(".")
+      const ext = dotIndex !== -1 ? originalFullName.substring(dotIndex) : ".webp"
+      const finalFileName = detailFileName.trim() ? `${detailFileName.trim().replace(/\.[^.]+$/, "")}${ext}` : undefined
+
       const updated = await mediaService.updateMedia(selectedMedia.id, {
         altText: detailAltText.trim() || undefined,
         title: detailTitle.trim() || undefined,
-        fileName: detailFileName.trim() || undefined,
+        fileName: finalFileName,
       })
+      if (extraSelectedItem && extraSelectedItem.id === updated.id) {
+        setExtraSelectedItem(updated)
+      }
       // Update the item in the list without reload
       // The hook items are read-only, so we update selectedMedia via re-fetch
       hookSearch(searchQuery || "")
@@ -472,8 +563,12 @@ export function MediaPickerDialog({
 
     const missing: { altText?: boolean; caption?: boolean } = {}
     const altText = detailAltText.trim() || selectedMedia.altText
-    if (!altText) missing.altText = true
-    if (!draft.caption.trim()) missing.caption = true
+
+    // Alt text and caption are only mandatory when inserting inline into the editor (captionOnly = true)
+    if (captionOnly) {
+      if (!altText) missing.altText = true
+      if (!draft.caption.trim()) missing.caption = true
+    }
 
     if (missing.altText || missing.caption) {
       setInsertValidationFields(missing)
@@ -568,6 +663,21 @@ export function MediaPickerDialog({
                                 }
                               }}
                               placeholder="Mô tả ảnh..."
+                              className="h-7 text-xs rounded-lg px-2"
+                            />
+                          </div>
+                          <div className="space-y-1.5">
+                            <label className="text-[10px] font-medium text-stone-500">Tên file SEO</label>
+                            <Input
+                              value={meta?.fileName ? meta.fileName.replace(/\.[^.]+$/, "") : ""}
+                              onChange={(e) => {
+                                const nextMetas = [...uploadMetadatas]
+                                if (nextMetas[idx]) {
+                                  nextMetas[idx] = { ...nextMetas[idx], fileName: e.target.value }
+                                  setUploadMetadatas(nextMetas)
+                                }
+                              }}
+                              placeholder="tên-file-seo"
                               className="h-7 text-xs rounded-lg px-2"
                             />
                           </div>
@@ -953,23 +1063,44 @@ export function MediaPickerDialog({
                     </Button>
                   </div>
 
-                  <div className="space-y-2">
-                    <Label htmlFor="media-caption">Chú thích ảnh (caption)</Label>
-                    <Textarea
-                      id="media-caption"
-                      value={draft.caption}
-                      onChange={(event) => {
-                        setIsDraftDirty(true)
-                        setDraft((prev) => ({ ...prev, caption: event.target.value }))
-                        if (event.target.value.trim()) {
-                          setInsertValidationFields((prev) => ({ ...prev, caption: false }))
-                          if (!insertValidationFields.altText) setInsertError(null)
-                        }
-                      }}
-                      placeholder="Nhập chú thích cho ảnh..."
-                      className={cn("min-h-16", insertValidationFields.caption && "border-red-400 ring-1 ring-red-100")}
-                    />
-                  </div>
+                  {captionOnly && (
+                    <div className="space-y-2">
+                      <Label htmlFor="media-caption">Chú thích ảnh (caption)</Label>
+                      <Textarea
+                        id="media-caption"
+                        value={draft.caption}
+                        onChange={(event) => {
+                          setIsDraftDirty(true)
+                          setDraft((prev) => ({ ...prev, caption: event.target.value }))
+                          if (event.target.value.trim()) {
+                            setInsertValidationFields((prev) => ({ ...prev, caption: false }))
+                            if (!insertValidationFields.altText) setInsertError(null)
+                          }
+                        }}
+                        placeholder="Nhập chú thích cho ảnh..."
+                        className={cn("min-h-16", insertValidationFields.caption && "border-red-400 ring-1 ring-red-100")}
+                      />
+                    </div>
+                  )}
+
+                  {selectedMedia && (
+                    <div className="pt-2">
+                      <Button
+                        type="button"
+                        variant="outline"
+                        className="w-full rounded-xl gap-2 border-red-200 text-red-600 hover:bg-red-50 hover:text-red-700 hover:border-red-300"
+                        disabled={isDeleting}
+                        onClick={handleDeleteMedia}
+                      >
+                        {isDeleting ? (
+                          <IconLoader2 className="size-4 animate-spin" />
+                        ) : (
+                          <IconTrash className="size-4" />
+                        )}
+                        Xóa vĩnh viễn khỏi thư viện
+                      </Button>
+                    </div>
+                  )}
                 </div>
               ) : (
                 <div className="flex h-full items-center justify-center p-4 text-sm text-stone-500">Chọn một ảnh để xem chi tiết</div>
@@ -978,7 +1109,12 @@ export function MediaPickerDialog({
                   {insertError ? (
                     <p className="mb-2 text-center text-xs text-red-500">{insertError}</p>
                   ) : null}
-                  <Button type="button" className="w-full rounded-xl" disabled={selectedMediaIds.length === 0} onClick={handleInsertSelectedMedia}>
+                  <Button
+                    type="button"
+                    className="w-full rounded-xl bg-orange-600 hover:bg-orange-700 text-white"
+                    disabled={selectedMediaIds.length === 0 || isDeleting}
+                    onClick={handleInsertSelectedMedia}
+                  >
                     {multiple ? `Chèn ${selectedMediaIds.length} ảnh` : "Chèn vào nội dung"}
                   </Button>
                 </div>

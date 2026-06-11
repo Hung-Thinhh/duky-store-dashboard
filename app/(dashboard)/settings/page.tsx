@@ -365,6 +365,15 @@ export default function SettingsPage() {
         if (mediaTarget === "og") setValue("seo.defaultOgImageUrl", media.url, { shouldDirty: true })
       }}
       title="Chọn ảnh cấu hình"
+      initialSelectedUrl={
+        mediaTarget === "logo"
+          ? settingsPreview.branding?.logoUrl || null
+          : mediaTarget === "favicon"
+          ? settingsPreview.branding?.faviconUrl || null
+          : mediaTarget === "og"
+          ? settingsPreview.seo?.defaultOgImageUrl || null
+          : null
+      }
     />
     </>
   )
