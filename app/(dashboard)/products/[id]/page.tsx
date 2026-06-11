@@ -2667,7 +2667,7 @@ export default function ProductDetailPage() {
                   values.push({
                     attributeId: "size",
                     attributeName: "Size",
-                    attributeType: "SELECT",
+                    attributeType: "SIZE",
                     termId: v.sizeLabel,
                     termName: v.sizeLabel,
                     colorHex: null,

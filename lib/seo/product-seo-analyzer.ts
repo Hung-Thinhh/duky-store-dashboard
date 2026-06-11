@@ -34,6 +34,7 @@ export type ProductSeoAnalyzerInput = {
   shortDescriptionHtml?: string | null
   imageAlts?: Array<string | null | undefined>
   hasImages?: boolean
+  siteUrl?: string | null
 }
 
 const htmlTagPattern = /<[^>]*>/g
