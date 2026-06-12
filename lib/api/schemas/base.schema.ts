@@ -25,7 +25,7 @@ export function createPaginatedResponseSchema<T extends z.ZodTypeAny>(itemSchema
   return BaseResponseSchema.extend({
     DT: z.object({
       data: z.array(itemSchema),
-      pagination: PaginationSchema,
+      pagination: PaginationSchema.optional(),
     }),
   })
 }

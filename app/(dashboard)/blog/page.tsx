@@ -203,7 +203,7 @@ function BlogPostsContent() {
       })
 
       setPosts(data.data)
-      setPagination(data.pagination)
+      setPagination(data.pagination!) 
     } catch (error) {
       console.error("Failed to fetch blog posts", error)
       setPosts([])

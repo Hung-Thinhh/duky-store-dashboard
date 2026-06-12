@@ -284,7 +284,7 @@ export default function ProductsPage() {
       setExpandedIds((current) =>
         current.filter((id) => data.data.some((product) => product.id === id))
       )
-      setPagination(data.pagination)
+      setPagination(data.pagination!)
     } catch (error) {
       console.error("Failed to fetch products", error)
       setProducts([])

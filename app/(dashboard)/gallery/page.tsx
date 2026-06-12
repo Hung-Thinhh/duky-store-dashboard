@@ -97,7 +97,7 @@ function GalleryContent() {
 
       const data = await galleryService.getGalleryList(params)
       setGalleryList(data.data)
-      setPagination(data.pagination)
+      setPagination(data.pagination!)
     } catch (error) {
       console.error("Failed to fetch gallery images", error)
       setGalleryList([])

@@ -95,7 +95,7 @@ export function useMediaPagination(
 
         const { data, pagination } = response
 
-        setTotalPages(pagination.totalPages)
+        setTotalPages(pagination?.totalPages ?? 0)
         setCurrentPage(page)
         loadedPagesRef.current.add(page)
         lastFailedPageRef.current = null
