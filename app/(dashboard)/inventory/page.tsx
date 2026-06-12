@@ -101,7 +101,7 @@ export default function InventoryPage() {
         search: searchQuery.trim() || undefined,
       })
       setInventories(data.data)
-      setPagination(data.pagination)
+      setPagination(data.pagination!)
     } catch (error) {
       console.error("Failed to fetch inventory", error)
       setInventories([])

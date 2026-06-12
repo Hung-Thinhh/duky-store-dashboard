@@ -52,9 +52,9 @@ export function KpiCards() {
 
         setKpiData([
           { title: "Doanh thu", value: formatPrice(revenue), change: `${orders.data.length}`, trend: "up", description: "đơn đang tải", icon: "currency" },
-          { title: "Đơn hàng", value: orders.pagination.total.toLocaleString("vi-VN"), change: "Dữ liệu thật", trend: "up", description: "từ API", icon: "orders" },
+          { title: "Đơn hàng", value: (orders.pagination?.total ?? 0).toLocaleString("vi-VN"), change: "Dữ liệu thật", trend: "up", description: "từ API", icon: "orders" },
           { title: "Giá trị TB", value: formatPrice(averageOrder), change: "Dữ liệu thật", trend: "up", description: "trên đơn đã tải", icon: "receipt" },
-          { title: "Khách hàng", value: customers.pagination.total.toLocaleString("vi-VN"), change: `${products.pagination.total}`, trend: "up", description: "sản phẩm trong catalog", icon: "customers" },
+          { title: "Khách hàng", value: (customers.pagination?.total ?? 0).toLocaleString("vi-VN"), change: `${products.pagination?.total ?? 0}`, trend: "up", description: "sản phẩm trong catalog", icon: "customers" },
         ])
       } catch (error) {
         console.error("Failed to fetch dashboard KPIs", error)

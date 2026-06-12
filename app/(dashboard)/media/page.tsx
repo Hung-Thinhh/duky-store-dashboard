@@ -81,7 +81,7 @@ function MediaContent() {
         search: searchQuery || undefined,
       })
       setMediaList(data.data)
-      setPagination(data.pagination)
+      setPagination(data.pagination!)
     } catch (error) {
       console.error("Failed to fetch media", error)
       setMediaList([])

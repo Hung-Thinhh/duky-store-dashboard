@@ -28,6 +28,7 @@ import {
   IconUserCircle,
   IconLogout,
   IconSearch,
+  IconCarouselHorizontal,
 } from "@tabler/icons-react"
 
 import {
@@ -106,6 +107,7 @@ const navGroups = [
       { title: "Blog", icon: IconArticle, href: "/blog" },
       { title: "Danh mục blog", icon: IconCategory, href: "/blog-categories" },
       { title: "Trang chủ", icon: IconLayout, href: "/home-content" },
+      { title: "Banner", icon: IconCarouselHorizontal, href: "/hero-slider" },
       { title: "Thư viện media", icon: IconPhoto, href: "/media" },
       { title: "Gallery lookbook", icon: IconPhoto, href: "/gallery" },
     ],

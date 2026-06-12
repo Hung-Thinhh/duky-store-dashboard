@@ -1,4 +1,4 @@
-import { Inter, Geist_Mono } from "next/font/google"
+import { Inter, Geist_Mono, Montserrat, Playfair_Display } from "next/font/google"
 import Script from "next/script";
 import type { Metadata } from "next"
 
@@ -10,6 +10,21 @@ const inter = Inter({ subsets: ["latin"], variable: "--font-sans" })
 const fontMono = Geist_Mono({
   subsets: ["latin"],
   variable: "--font-mono",
+})
+
+const montserrat = Montserrat({
+  subsets: ["latin", "vietnamese"],
+  weight: ["300", "400", "500", "600", "700", "800", "900"],
+  variable: "--font-montserrat",
+  display: "swap",
+})
+
+const playfair = Playfair_Display({
+  subsets: ["latin", "vietnamese"],
+  weight: ["400", "500", "600", "700", "800", "900"],
+  style: ["normal", "italic"],
+  variable: "--font-playfair",
+  display: "swap",
 })
 
 export const metadata: Metadata = {
@@ -27,7 +42,14 @@ export default function RootLayout({
     <html
       lang="vi"
       suppressHydrationWarning
-      className={cn("antialiased", fontMono.variable, "font-sans", inter.variable)}
+      className={cn(
+        "antialiased",
+        fontMono.variable,
+        "font-sans",
+        inter.variable,
+        montserrat.variable,
+        playfair.variable,
+      )}
     >
       <head>
         {process.env.NODE_ENV === "development" && (
