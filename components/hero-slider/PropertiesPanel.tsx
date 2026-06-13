@@ -20,6 +20,7 @@ interface PropertiesPanelProps {
   viewport: ViewportMode
   onUpdateLayer: (layerIndex: number, updater: (l: SlideLayer) => SlideLayer) => void
   onPickMedia: (layerIndex: number, type: "layer" | "mobile") => void
+  onStartGradientEdit?: () => void
 }
 
 // ─── Image Properties ─────────────────────────────────────────────────────
@@ -71,14 +72,224 @@ function ImageProperties({
   )
 }
 
+// ─── Gradient Editor Helper ──────────────────────────────────────────────
+
+function GradientEditor({
+  layer,
+  onChange,
+  onStartGradientEdit,
+}: {
+  layer: SlideLayer
+  onChange: (updater: (l: SlideLayer) => SlideLayer) => void
+  onStartGradientEdit?: () => void
+}) {
+  const useGradient = layer.useGradient ?? false
+  const type = layer.gradientType ?? "linear"
+  const angle = layer.gradientAngle ?? 135
+  const rawStops = layer.gradientStops ?? [
+    { color: "#101114", position: 0 },
+    { color: "#70737a", position: 100 },
+  ]
+
+  const stops = rawStops.map((s, idx) => ({
+    id: s.id ?? `stop-${idx}`,
+    color: s.color,
+    position: s.position,
+  }))
+  stops.sort((a, b) => a.position - b.position)
+
+  const stopsStr = stops.map((s) => `${s.color} ${s.position}%`).join(", ")
+  const previewBackground =
+    type === "radial"
+      ? `radial-gradient(circle, ${stopsStr})`
+      : `linear-gradient(90deg, ${stopsStr})`
+
+  const toggleGradient = (val: boolean) => {
+    onChange((l) => ({
+      ...l,
+      useGradient: val,
+      gradientType: "linear",
+      gradientAngle: l.gradientAngle ?? 135,
+      gradientStops: l.gradientStops ?? [
+        { id: `stop-0-${Date.now()}`, color: "#101114", position: 0 },
+        { id: `stop-1-${Date.now()}`, color: "#70737a", position: 100 },
+      ],
+    }))
+  }
+
+  const updateStop = (id: string, field: "color" | "position", value: any) => {
+    onChange((l) => {
+      const currentStops = (l.gradientStops ?? rawStops).map((s, idx) => ({
+        id: s.id ?? `stop-${idx}`,
+        color: s.color,
+        position: s.position,
+      }))
+      const idx = currentStops.findIndex((s) => s.id === id)
+      if (idx !== -1) {
+        currentStops[idx] = {
+          ...currentStops[idx],
+          [field]: field === "position" ? Number(value) : value,
+        }
+        currentStops.sort((a, b) => a.position - b.position)
+      }
+      return { ...l, gradientStops: currentStops }
+    })
+  }
+
+  const addStop = () => {
+    onChange((l) => {
+      const currentStops = (l.gradientStops ?? rawStops).map((s, idx) => ({
+        id: s.id ?? `stop-${idx}-${Date.now()}`,
+        color: s.color,
+        position: s.position,
+      }))
+      currentStops.sort((a, b) => a.position - b.position)
+
+      const len = currentStops.length
+      if (len >= 1) {
+        const lastStop = currentStops[len - 1]
+        const secondLastPos = len >= 2 ? currentStops[len - 2].position : 0
+        lastStop.position = Math.round(secondLastPos + (100 - secondLastPos) / 2)
+      }
+      currentStops.push({
+        id: `stop-new-${Date.now()}`,
+        color: "#70737a",
+        position: 100,
+      })
+
+      currentStops.sort((a, b) => a.position - b.position)
+      return { ...l, gradientStops: currentStops }
+    })
+  }
+
+  const removeStop = (id: string) => {
+    onChange((l) => {
+      const currentStops = (l.gradientStops ?? rawStops).map((s, idx) => ({
+        id: s.id ?? `stop-${idx}`,
+        color: s.color,
+        position: s.position,
+      }))
+      if (currentStops.length <= 2) return l
+      const idx = currentStops.findIndex((s) => s.id === id)
+      if (idx !== -1) {
+        currentStops.splice(idx, 1)
+      }
+      return { ...l, gradientStops: currentStops }
+    })
+  }
+
+  return (
+    <div
+      className="space-y-3 border-t pt-3 mt-3"
+      onClickCapture={onStartGradientEdit}
+      onFocusCapture={onStartGradientEdit}
+    >
+      <div className="flex items-center justify-between">
+        <Label className="text-xs font-semibold">Kiểu màu</Label>
+        <div className="flex bg-muted p-0.5 rounded-lg text-[10px]">
+          <button
+            type="button"
+            onClick={() => toggleGradient(false)}
+            className={`px-2 py-0.5 rounded-md transition-colors ${
+              !useGradient ? "bg-background shadow-sm text-foreground font-medium" : "text-muted-foreground hover:text-foreground"
+            }`}
+          >
+            Đơn sắc
+          </button>
+          <button
+            type="button"
+            onClick={() => toggleGradient(true)}
+            className={`px-2 py-0.5 rounded-md transition-colors ${
+              useGradient ? "bg-background shadow-sm text-foreground font-medium" : "text-muted-foreground hover:text-foreground"
+            }`}
+          >
+            Gradient
+          </button>
+        </div>
+      </div>
+
+      {useGradient && (
+        <div className="space-y-3 animate-in fade-in slide-in-from-top-1 duration-200">
+          <div className="space-y-1">
+            <Label className="text-[10px] text-muted-foreground">Góc quay ({angle}°)</Label>
+            <div className="flex items-center gap-2 pt-2">
+              <input
+                type="range"
+                min={0}
+                max={360}
+                value={angle}
+                onChange={(e) => onChange((l) => ({ ...l, gradientAngle: Number(e.target.value) }))}
+                className="flex-1 h-1 accent-primary cursor-pointer"
+              />
+            </div>
+          </div>
+
+          <div className="space-y-1">
+            <Label className="text-[10px] text-muted-foreground">Thanh màu xem trước</Label>
+            <div
+              className="h-5 w-full rounded-lg border shadow-inner"
+              style={{ background: previewBackground }}
+            />
+          </div>
+
+          <div className="space-y-2">
+            <div className="flex items-center justify-between">
+              <Label className="text-[10px] text-muted-foreground">Điểm màu (Stops)</Label>
+              <Button size="icon" variant="ghost" className="size-5 rounded-md hover:bg-muted" onClick={addStop}>
+                <span className="text-sm font-bold">+</span>
+              </Button>
+            </div>
+
+            <div className="space-y-1.5 max-h-[140px] overflow-y-auto pr-1">
+              {stops.map((stop) => (
+                <div key={stop.id} className="flex items-center gap-1.5">
+                  <input
+                    type="color"
+                    value={stop.color}
+                    onChange={(e) => updateStop(stop.id, "color", e.target.value)}
+                    className="size-5 rounded cursor-pointer border shrink-0"
+                  />
+                  <div className="flex items-center gap-1 flex-1">
+                    <input
+                      type="range"
+                      min={0}
+                      max={100}
+                      value={stop.position}
+                      onChange={(e) => updateStop(stop.id, "position", e.target.value)}
+                      className="flex-1 h-1 accent-primary cursor-pointer"
+                    />
+                    <span className="text-[9px] font-mono text-muted-foreground w-6 text-right">{stop.position}%</span>
+                  </div>
+                  {stops.length > 2 && (
+                    <Button
+                      size="icon"
+                      variant="ghost"
+                      className="size-5 text-destructive hover:bg-destructive/10 rounded-md shrink-0"
+                      onClick={() => removeStop(stop.id)}
+                    >
+                      <span className="text-[10px] font-bold">−</span>
+                    </Button>
+                  )}
+                </div>
+              ))}
+            </div>
+          </div>
+        </div>
+      )}
+    </div>
+  )
+}
+
 // ─── Text Properties ──────────────────────────────────────────────────────
 
 function TextProperties({
   layer,
   onUpdate,
+  onStartGradientEdit,
 }: {
   layer: SlideLayer
   onUpdate: (updater: (l: SlideLayer) => SlideLayer) => void
+  onStartGradientEdit?: () => void
 }) {
   return (
     <div className="space-y-4">
@@ -126,14 +337,16 @@ function TextProperties({
         </div>
       </div>
       <div className="grid grid-cols-2 gap-2">
-        <div className="space-y-1">
-          <Label className="text-xs">Màu chữ</Label>
-          <div className="flex gap-2 items-center">
-            <input type="color" value={layer.color ?? "#101114"} onChange={(e) => onUpdate((l) => ({ ...l, color: e.target.value }))} className="w-8 h-8 rounded cursor-pointer border" />
-            <Input value={layer.color ?? "#101114"} onChange={(e) => onUpdate((l) => ({ ...l, color: e.target.value }))} className="h-8 text-xs rounded-lg font-mono" />
+        {!layer.useGradient && (
+          <div className="space-y-1">
+            <Label className="text-xs">Màu chữ</Label>
+            <div className="flex gap-2 items-center">
+              <input type="color" value={layer.color ?? "#101114"} onChange={(e) => onUpdate((l) => ({ ...l, color: e.target.value }))} className="w-8 h-8 rounded cursor-pointer border" />
+              <Input value={layer.color ?? "#101114"} onChange={(e) => onUpdate((l) => ({ ...l, color: e.target.value }))} className="h-8 text-xs rounded-lg font-mono" />
+            </div>
           </div>
-        </div>
-        <div className="space-y-1">
+        )}
+        <div className={`space-y-1 ${layer.useGradient ? "col-span-2" : ""}`}>
           <Label className="text-xs">Căn lề</Label>
           <Select value={layer.textAlign ?? "left"} onValueChange={(v) => onUpdate((l) => ({ ...l, textAlign: v as "left" | "center" | "right" }))}>
             <SelectTrigger className="h-8 text-xs rounded-lg"><SelectValue /></SelectTrigger>
@@ -145,6 +358,8 @@ function TextProperties({
           </Select>
         </div>
       </div>
+
+      <GradientEditor layer={layer} onChange={onUpdate} onStartGradientEdit={onStartGradientEdit} />
 
       {/* Text Effects */}
       <div className="grid grid-cols-2 gap-2">
@@ -180,9 +395,11 @@ function TextProperties({
 function ButtonProperties({
   layer,
   onUpdate,
+  onStartGradientEdit,
 }: {
   layer: SlideLayer
   onUpdate: (updater: (l: SlideLayer) => SlideLayer) => void
+  onStartGradientEdit?: () => void
 }) {
   return (
     <div className="space-y-4">
@@ -215,14 +432,16 @@ function ButtonProperties({
         </Select>
       </div>
       <div className="grid grid-cols-2 gap-2">
-        <div className="space-y-1">
-          <Label className="text-xs">Màu nền</Label>
-          <div className="flex gap-2 items-center">
-            <input type="color" value={layer.buttonColor ?? "#101114"} onChange={(e) => onUpdate((l) => ({ ...l, buttonColor: e.target.value }))} className="w-8 h-8 rounded cursor-pointer border" />
-            <Input value={layer.buttonColor ?? "#101114"} onChange={(e) => onUpdate((l) => ({ ...l, buttonColor: e.target.value }))} className="h-8 text-xs rounded-lg font-mono" />
+        {!layer.useGradient && (
+          <div className="space-y-1">
+            <Label className="text-xs">Màu nền</Label>
+            <div className="flex gap-2 items-center">
+              <input type="color" value={layer.buttonColor ?? "#101114"} onChange={(e) => onUpdate((l) => ({ ...l, buttonColor: e.target.value }))} className="w-8 h-8 rounded cursor-pointer border" />
+              <Input value={layer.buttonColor ?? "#101114"} onChange={(e) => onUpdate((l) => ({ ...l, buttonColor: e.target.value }))} className="h-8 text-xs rounded-lg font-mono" />
+            </div>
           </div>
-        </div>
-        <div className="space-y-1">
+        )}
+        <div className={`space-y-1 ${layer.useGradient ? "col-span-2" : ""}`}>
           <Label className="text-xs">Màu chữ</Label>
           <div className="flex gap-2 items-center">
             <input type="color" value={layer.textColor ?? "#ffffff"} onChange={(e) => onUpdate((l) => ({ ...l, textColor: e.target.value }))} className="w-8 h-8 rounded cursor-pointer border" />
@@ -230,6 +449,8 @@ function ButtonProperties({
           </div>
         </div>
       </div>
+
+      <GradientEditor layer={layer} onChange={onUpdate} onStartGradientEdit={onStartGradientEdit} />
     </div>
   )
 }
@@ -301,6 +522,7 @@ export function PropertiesPanel({
   viewport,
   onUpdateLayer,
   onPickMedia,
+  onStartGradientEdit,
 }: PropertiesPanelProps) {
   const currentLayers = slide.layers[viewport] ?? []
   const selectedLayer = selectedLayerIndex !== null ? currentLayers[selectedLayerIndex] : null
@@ -334,10 +556,10 @@ export function PropertiesPanel({
               />
             )}
             {selectedLayer.type === "text" && (
-              <TextProperties layer={selectedLayer} onUpdate={updateSelectedLayer} />
+              <TextProperties layer={selectedLayer} onUpdate={updateSelectedLayer} onStartGradientEdit={onStartGradientEdit} />
             )}
             {selectedLayer.type === "button" && (
-              <ButtonProperties layer={selectedLayer} onUpdate={updateSelectedLayer} />
+              <ButtonProperties layer={selectedLayer} onUpdate={updateSelectedLayer} onStartGradientEdit={onStartGradientEdit} />
             )}
           </TabsContent>
 

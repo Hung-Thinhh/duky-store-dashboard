@@ -2,7 +2,6 @@
 
 import * as React from "react"
 import { IconPhoto } from "@tabler/icons-react"
-import { CropOverlay } from "./CropOverlay"
 import type { SlideLayer } from "@/app/(dashboard)/hero-slider/types"
 
 // ─── Types ────────────────────────────────────────────────────────────────
@@ -11,11 +10,8 @@ interface LayerNodeProps {
   layer: SlideLayer
   canvasRect: DOMRect | null
   isSelected: boolean
-  cropMode?: boolean
-  cropRect?: { x: number; y: number; width: number; height: number }
-  onCropRectChange?: (rect: { x: number; y: number; width: number; height: number }) => void
   layerRect?: { width: number; height: number }
-  onSelect: () => void
+  onSelect: (e: React.MouseEvent) => void
   onPositionChange: (left: number, top: number) => void
   onSizeChange: (width: number, height: number) => void
   onDragStart?: () => void
@@ -30,15 +26,31 @@ function parsePercent(v: string | undefined, fallback: number): number {
   return isNaN(num) ? fallback : num
 }
 
+function getGradientCss(layer: SlideLayer): string | undefined {
+  if (!layer.useGradient) return undefined
+  const type = layer.gradientType ?? "linear"
+  const angle = layer.gradientAngle ?? 135
+  const stops = layer.gradientStops ?? [
+    { color: "#101114", position: 0 },
+    { color: "#70737a", position: 100 }
+  ]
+  const stopsStr = [...stops]
+    .sort((a, b) => a.position - b.position)
+    .map(s => `${s.color} ${s.position}%`)
+    .join(", ")
+
+  if (type === "radial") {
+    return `radial-gradient(circle, ${stopsStr})`
+  }
+  return `linear-gradient(${angle}deg, ${stopsStr})`
+}
+
 // ─── LayerNode Component ──────────────────────────────────────────────────
 
 export function LayerNode({
   layer,
   canvasRect,
   isSelected,
-  cropMode,
-  cropRect,
-  onCropRectChange,
   layerRect,
   onSelect,
   onPositionChange,
@@ -70,7 +82,7 @@ export function LayerNode({
   const handleMouseDown = (e: React.MouseEvent) => {
     e.stopPropagation()
     e.preventDefault()
-    onSelect()
+    onSelect(e)
 
     // Don't allow drag if locked
     if (layer.locked) return
@@ -135,67 +147,22 @@ export function LayerNode({
       onMouseDown={handleMouseDown}
       onClick={(e) => {
         e.stopPropagation()
-        onSelect()
+        onSelect(e)
       }}
     >
       {/* Layer content — render by type */}
-      {layer.type === "image" && layer.src && (() => {
-        // Crop mode: clip image to crop rect
-        if (cropMode && cropRect) {
-          const insetRight = 100 - cropRect.x - cropRect.width
-          const insetBottom = 100 - cropRect.y - cropRect.height
-          return (
-            <img
-              src={layer.src}
-              alt={layer.alt}
-              className="w-full h-full pointer-events-none"
-              style={{
-                objectFit: layer.objectFit || "contain",
-                objectPosition: layer.objectPosition || "center",
-                clipPath: `inset(${cropRect.y}% ${insetRight}% ${insetBottom}% ${cropRect.x}%)`,
-              }}
-              draggable={false}
-            />
-          )
-        }
-
-        // Saved crop: use overflow:hidden container
-        if (layer.crop) {
-          const crop = layer.crop
-          const scaleX = 100 / crop.width
-          const scaleY = 100 / crop.height
-          return (
-            <div className="relative w-full h-full overflow-hidden pointer-events-none">
-              <img
-                src={layer.src}
-                alt={layer.alt}
-                className="absolute"
-                style={{
-                  left: `${-crop.x * scaleX}%`,
-                  top: `${-crop.y * scaleY}%`,
-                  width: `${scaleX * 100}%`,
-                  height: `${scaleY * 100}%`,
-                }}
-                draggable={false}
-              />
-            </div>
-          )
-        }
-
-        // No crop: render normally
-        return (
-          <img
-            src={layer.src}
-            alt={layer.alt}
-            className="w-full h-full pointer-events-none"
-            style={{
-              objectFit: layer.objectFit || "contain",
-              objectPosition: layer.objectPosition || "center",
-            }}
-            draggable={false}
-          />
-        )
-      })()}
+      {layer.type === "image" && layer.src && (
+        <img
+          src={layer.src}
+          alt={layer.alt}
+          className="w-full h-full pointer-events-none"
+          style={{
+            objectFit: layer.objectFit || "contain",
+            objectPosition: layer.objectPosition || "center",
+          }}
+          draggable={false}
+        />
+      )}
 
       {layer.type === "image" && !layer.src && (
         <div className="w-full h-full flex items-center justify-center bg-muted/50 rounded border-dashed border-2 border-muted-foreground/30">
@@ -206,63 +173,72 @@ export function LayerNode({
         </div>
       )}
 
-      {layer.type === "text" && (
-        <div
-          className="w-full h-full flex items-center pointer-events-none"
-          style={{
-            justifyContent: layer.textAlign === "center" ? "center" : layer.textAlign === "right" ? "flex-end" : "flex-start",
-          }}
-        >
-          <p
+      {layer.type === "text" && (() => {
+        const gradientCss = getGradientCss(layer)
+        const textStyle: React.CSSProperties = {
+          fontSize: `${layer.fontSize ?? 24}px`,
+          fontWeight: layer.fontWeight ?? 400,
+          fontFamily:
+            layer.fontFamily === "playfair"
+              ? "var(--font-playfair)"
+              : "var(--font-montserrat)",
+          textAlign: layer.textAlign ?? "left",
+          lineHeight: layer.lineHeight ?? 1.3,
+          letterSpacing: layer.letterSpacing ? `${layer.letterSpacing}px` : undefined,
+          textShadow: layer.textShadow || undefined,
+          margin: 0,
+        }
+        if (gradientCss) {
+          textStyle.backgroundImage = gradientCss
+          textStyle.backgroundClip = "text"
+          textStyle.WebkitBackgroundClip = "text"
+          textStyle.WebkitTextFillColor = "transparent"
+        } else {
+          textStyle.color = layer.color ?? "#101114"
+        }
+        return (
+          <div
+            className="w-full h-full flex items-center pointer-events-none"
             style={{
-              fontSize: `${layer.fontSize ?? 24}px`,
-              fontWeight: layer.fontWeight ?? 400,
-              color: layer.color ?? "#101114",
-              fontFamily:
-                layer.fontFamily === "playfair"
-                  ? "var(--font-playfair)"
-                  : "var(--font-montserrat)",
-              textAlign: layer.textAlign ?? "left",
-              lineHeight: layer.lineHeight ?? 1.3,
-              letterSpacing: layer.letterSpacing ? `${layer.letterSpacing}px` : undefined,
-              textShadow: layer.textShadow || undefined,
-              margin: 0,
+              justifyContent: layer.textAlign === "center" ? "center" : layer.textAlign === "right" ? "flex-end" : "flex-start",
             }}
           >
-            {layer.content || "Nhập văn bản"}
-          </p>
-        </div>
-      )}
+            <p style={textStyle} className={gradientCss ? "bg-clip-text" : undefined}>
+              {layer.content || "Nhập văn bản"}
+            </p>
+          </div>
+        )
+      })()}
 
-      {layer.type === "button" && (
-        <div className="w-full h-full flex items-center justify-center pointer-events-none">
-          <span
-            className="inline-block font-semibold rounded-full"
-            style={{
-              background: layer.buttonColor ?? "#101114",
-              color: layer.textColor ?? "#ffffff",
-              fontFamily:
-                layer.fontFamily === "playfair"
-                  ? "var(--font-playfair)"
-                  : "var(--font-montserrat)",
-              padding: "10px 28px",
-              fontSize: "14px",
-              border: layer.variant === "secondary" ? "2px solid #101114" : "none",
-            }}
-          >
-            {layer.label || "Xem thêm"}
-          </span>
-        </div>
-      )}
+      {layer.type === "button" && (() => {
+        const buttonGradientCss = getGradientCss(layer)
+        const btnStyle: React.CSSProperties = {
+          color: layer.textColor ?? "#ffffff",
+          fontFamily:
+            layer.fontFamily === "playfair"
+              ? "var(--font-playfair)"
+              : "var(--font-montserrat)",
+          padding: "10px 28px",
+          fontSize: "14px",
+          border: layer.variant === "secondary" ? "2px solid #101114" : "none",
+        }
+        if (buttonGradientCss) {
+          btnStyle.background = buttonGradientCss
+        } else {
+          btnStyle.background = layer.buttonColor ?? "#101114"
+        }
+        return (
+          <div className="w-full h-full flex items-center justify-center pointer-events-none">
+            <span
+              className="inline-block font-semibold rounded-full"
+              style={btnStyle}
+            >
+              {layer.label || "Xem thêm"}
+            </span>
+          </div>
+        )
+      })()}
 
-      {/* Crop overlay — shown when in crop mode */}
-      {cropMode && cropRect && onCropRectChange && layerRect && (
-        <CropOverlay
-          cropRect={cropRect}
-          onCropChange={onCropRectChange}
-          layerRect={layerRect}
-        />
-      )}
     </div>
   )
 }

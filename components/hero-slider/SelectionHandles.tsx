@@ -27,15 +27,15 @@ function CornerHandle({
   onResizeStart: (dir: ResizeDirection, e: React.MouseEvent) => void
 }) {
   const positionMap: Record<string, React.CSSProperties> = {
-    nw: { top: -6, left: -6, cursor: "nw-resize" },
-    ne: { top: -6, right: -6, cursor: "ne-resize" },
-    se: { bottom: -6, right: -6, cursor: "se-resize" },
-    sw: { bottom: -6, left: -6, cursor: "sw-resize" },
+    nw: { top: -10, left: -10, cursor: "nw-resize" },
+    ne: { top: -10, right: -10, cursor: "ne-resize" },
+    se: { bottom: -10, right: -10, cursor: "se-resize" },
+    sw: { bottom: -10, left: -10, cursor: "sw-resize" },
   }
 
   return (
     <div
-      className="absolute w-3.5 h-3.5 bg-white border-2 border-primary rounded-full z-50 hover:bg-primary/20 shadow-sm"
+      className="absolute w-5 h-5 bg-white border-2 border-primary rounded-full z-50 hover:bg-primary/20 shadow-sm"
       style={{ ...positionMap[direction], pointerEvents: "auto" }}
       onMouseDown={(e) => {
         e.stopPropagation()
@@ -57,36 +57,36 @@ function EdgeHandle({
 }) {
   const positionMap: Record<string, React.CSSProperties> = {
     n: {
-      top: -3,
+      top: -4,
       left: "50%",
       transform: "translateX(-50%)",
       cursor: "n-resize",
-      width: 32,
-      height: 6,
+      width: 40,
+      height: 8,
     },
     s: {
-      bottom: -3,
+      bottom: -4,
       left: "50%",
       transform: "translateX(-50%)",
       cursor: "s-resize",
-      width: 32,
-      height: 6,
+      width: 40,
+      height: 8,
     },
     e: {
       top: "50%",
-      right: -3,
+      right: -4,
       transform: "translateY(-50%)",
       cursor: "e-resize",
-      width: 6,
-      height: 32,
+      width: 8,
+      height: 40,
     },
     w: {
       top: "50%",
-      left: -3,
+      left: -4,
       transform: "translateY(-50%)",
       cursor: "w-resize",
-      width: 6,
-      height: 32,
+      width: 8,
+      height: 40,
     },
   }
 

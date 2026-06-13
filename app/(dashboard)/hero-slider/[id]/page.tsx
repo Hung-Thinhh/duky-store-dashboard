@@ -2,7 +2,14 @@
 
 import * as React from "react"
 import { useParams, useRouter } from "next/navigation"
-import { IconArrowLeft, IconLoader2 } from "@tabler/icons-react"
+import {
+  IconArrowLeft,
+  IconLoader2,
+  IconLayoutSidebar,
+  IconPhoto,
+  IconTypography,
+  IconClick,
+} from "@tabler/icons-react"
 
 import { MediaPickerDialog } from "@/components/media/media-picker-dialog"
 import { homepageService } from "@/lib/api/services/homepage.service"
@@ -12,7 +19,10 @@ import { type Media } from "@/lib/api/schemas/media.schema"
 import { useSlideLayerHistory } from "@/hooks/use-slide-layer-history"
 import { useSliderKeyboard } from "@/hooks/use-slider-keyboard"
 import { TopToolbar } from "@/components/hero-slider/TopToolbar"
-import { LeftSidebar } from "@/components/hero-slider/LeftSidebar"
+import { Button } from "@/components/ui/button"
+import { useSidebar } from "@/components/ui/sidebar"
+import { BottomPanel } from "@/components/hero-slider/BottomPanel"
+import { FloatingLayersPanel } from "@/components/hero-slider/FloatingLayersPanel"
 import { SliderCanvas } from "@/components/hero-slider/SliderCanvas"
 import { PropertiesPanel } from "@/components/hero-slider/PropertiesPanel"
 import type { SlideData, SlideLayer, LayerType, ViewportMode } from "../types"
@@ -33,7 +43,8 @@ const defaultSlide = (index: number): SlideData => ({
 const defaultLayer = (type: LayerType, zIndex = 0): SlideLayer => {
   const base: SlideLayer = {
     type,
-    name: type === "image" ? "Ảnh mới" : type === "text" ? "Văn bản" : "Nút bấm",
+    name:
+      type === "image" ? "Ảnh mới" : type === "text" ? "Văn bản" : "Nút bấm",
     zIndex,
   }
 
@@ -43,13 +54,14 @@ const defaultLayer = (type: LayerType, zIndex = 0): SlideLayer => {
       src: "",
       alt: "",
       objectFit: "contain",
-      float: { duration: 4, delay: 0, displacement: 0, direction: "down" },
     }
   }
 
   if (type === "text") {
     return {
       ...base,
+      width: "50%",
+      height: "16%",
       content: "Nhập văn bản",
       fontSize: 24,
       fontWeight: 400,
@@ -61,6 +73,8 @@ const defaultLayer = (type: LayerType, zIndex = 0): SlideLayer => {
   // button
   return {
     ...base,
+    width: "8%",
+    height: "8%",
     label: "Xem thêm",
     link: "/",
     variant: "primary",
@@ -90,7 +104,6 @@ function flattenLayerForViewport(l: any, vp: string): SlideLayer {
     srcMobile: l.srcMobile,
     alt: l.alt,
     float: l.float,
-    crop: l.crop?.[vp],
     content: l.content,
     fontSize: layout.fontSize ?? l.fontSize,
     fontWeight: l.fontWeight,
@@ -106,6 +119,10 @@ function flattenLayerForViewport(l: any, vp: string): SlideLayer {
     buttonColor: l.buttonColor,
     textColor: l.textColor,
     entranceAnimation: l.entranceAnimation,
+    useGradient: l.useGradient,
+    gradientType: l.gradientType,
+    gradientAngle: l.gradientAngle,
+    gradientStops: l.gradientStops,
   }
 }
 
@@ -121,7 +138,7 @@ function migrateOldSlide(old: any): SlideData {
   if (!Array.isArray(old.layers)) return old as SlideData
 
   const needsMigration = old.layers.some(
-    (l: any) => "role" in l && !("type" in l),
+    (l: any) => "role" in l && !("type" in l)
   )
 
   let sharedLayers: any[]
@@ -145,33 +162,74 @@ function migrateOldSlide(old: any): SlideData {
 
     if (old.text?.badge) {
       textLayers.push({
-        type: "text", name: "Badge", zIndex: z++, content: old.text.badge,
-        fontSize: 14, fontWeight: 500, color: old.text.style?.badgeColor ?? "#70737a", textAlign: "left",
-        layout: { desktop: { top: "100px", left: "100px" }, tablet: {}, mobile: {} },
+        type: "text",
+        name: "Badge",
+        zIndex: z++,
+        content: old.text.badge,
+        fontSize: 14,
+        fontWeight: 500,
+        color: old.text.style?.badgeColor ?? "#70737a",
+        textAlign: "left",
+        layout: {
+          desktop: { top: "100px", left: "100px" },
+          tablet: {},
+          mobile: {},
+        },
       })
     }
     if (old.text?.title) {
       textLayers.push({
-        type: "text", name: "Tiêu đề", zIndex: z++, content: old.text.title,
-        fontSize: 48, fontWeight: 700, color: old.text.style?.titleColor ?? "#101114", textAlign: "left",
-        layout: { desktop: { top: "130px", left: "100px" }, tablet: {}, mobile: {} },
+        type: "text",
+        name: "Tiêu đề",
+        zIndex: z++,
+        content: old.text.title,
+        fontSize: 48,
+        fontWeight: 700,
+        color: old.text.style?.titleColor ?? "#101114",
+        textAlign: "left",
+        layout: {
+          desktop: { top: "130px", left: "100px" },
+          tablet: {},
+          mobile: {},
+        },
       })
     }
     if (old.text?.tagline) {
       textLayers.push({
-        type: "text", name: "Mô tả", zIndex: z++, content: old.text.tagline,
-        fontSize: 16, fontWeight: 400, color: old.text.style?.taglineColor ?? "#5f646d", textAlign: "left",
-        layout: { desktop: { top: "200px", left: "100px" }, tablet: {}, mobile: {} },
+        type: "text",
+        name: "Mô tả",
+        zIndex: z++,
+        content: old.text.tagline,
+        fontSize: 16,
+        fontWeight: 400,
+        color: old.text.style?.taglineColor ?? "#5f646d",
+        textAlign: "left",
+        layout: {
+          desktop: { top: "200px", left: "100px" },
+          tablet: {},
+          mobile: {},
+        },
       })
     }
     if (old.text?.buttons) {
       for (const btn of old.text.buttons) {
         textLayers.push({
-          type: "button", name: btn.label || "Nút", zIndex: z++,
-          label: btn.label, link: btn.link, variant: btn.variant,
+          type: "button",
+          name: btn.label || "Nút",
+          zIndex: z++,
+          label: btn.label,
+          link: btn.link,
+          variant: btn.variant,
           buttonColor: btn.variant === "primary" ? "#101114" : "transparent",
           textColor: btn.variant === "primary" ? "#ffffff" : "#101114",
-          layout: { desktop: { top: `${250 + textLayers.length * 50}px`, left: "100px" }, tablet: {}, mobile: {} },
+          layout: {
+            desktop: {
+              top: `${250 + textLayers.length * 50}px`,
+              left: "100px",
+            },
+            tablet: {},
+            mobile: {},
+          },
         })
       }
     }
@@ -185,11 +243,23 @@ function migrateOldSlide(old: any): SlideData {
   return {
     ...old,
     layers: {
-      desktop: sharedLayers.map((l: any) => flattenLayerForViewport(l, "desktop")),
-      tablet: sharedLayers.map((l: any) => flattenLayerForViewport(l, "tablet")),
-      mobile: sharedLayers.map((l: any) => flattenLayerForViewport(l, "mobile")),
+      desktop: sharedLayers.map((l: any) =>
+        flattenLayerForViewport(l, "desktop")
+      ),
+      tablet: sharedLayers.map((l: any) =>
+        flattenLayerForViewport(l, "tablet")
+      ),
+      mobile: sharedLayers.map((l: any) =>
+        flattenLayerForViewport(l, "mobile")
+      ),
     },
   }
+}
+
+const CANVAS_SIZES: Record<ViewportMode, { width: number; height: number }> = {
+  desktop: { width: 1920, height: 900 },
+  tablet: { width: 768, height: 954 },
+  mobile: { width: 390, height: 664 },
 }
 
 // ─── Main Component ───────────────────────────────────────────────────────
@@ -197,12 +267,27 @@ function migrateOldSlide(old: any): SlideData {
 export default function HeroSliderEditorPage() {
   const { id } = useParams<{ id: string }>()
   const router = useRouter()
+  const { setOpen } = useSidebar()
   const [section, setSection] = React.useState<HomepageSection | null>(null)
   const [slides, setSlides] = React.useState<SlideData[]>([])
   const [selectedSlideIndex, setSelectedSlideIndex] = React.useState(0)
-  const [selectedLayerIndex, setSelectedLayerIndex] = React.useState<
-    number | null
-  >(null)
+  const [selectedLayerIndices, setSelectedLayerIndices] = React.useState<
+    number[]
+  >([])
+  const [clipboard, setClipboard] = React.useState<SlideLayer[]>([])
+
+  const selectedLayerIndex =
+    selectedLayerIndices.length > 0 ? selectedLayerIndices[0] : null
+  const setSelectedLayerIndex = React.useCallback(
+    (val: number | null | ((prev: number | null) => number | null)) => {
+      setSelectedLayerIndices((prev) => {
+        const currentVal = prev.length > 0 ? prev[0] : null
+        const nextVal = typeof val === "function" ? val(currentVal) : val
+        return nextVal === null ? [] : [nextVal]
+      })
+    },
+    []
+  )
   const [viewport, setViewport] = React.useState<ViewportMode>("desktop")
   const [isLoading, setIsLoading] = React.useState(true)
   const [isSaving, setIsSaving] = React.useState(false)
@@ -213,8 +298,29 @@ export default function HeroSliderEditorPage() {
     type: "layer" | "mobile"
   } | null>(null)
   const [propertiesOpen, setPropertiesOpen] = React.useState(false)
-  const [cropMode, setCropMode] = React.useState(false)
-  const [cropRect, setCropRect] = React.useState({ x: 10, y: 10, width: 80, height: 80 })
+  const [layersPanelOpen, setLayersPanelOpen] = React.useState(false)
+  const [zoomScale, setZoomScale] = React.useState(1)
+  const [panOffset, setPanOffset] = React.useState({ x: 0, y: 0 })
+  const [activeGradientEditIndex, setActiveGradientEditIndex] = React.useState<number | null>(null)
+
+  React.useEffect(() => {
+    setActiveGradientEditIndex(null)
+  }, [selectedLayerIndex])
+
+  const handleFit = React.useCallback(() => {
+    setZoomScale(1)
+    setPanOffset({ x: 0, y: 0 })
+  }, [])
+
+  // Auto-collapse admin sidebar on mount
+  React.useEffect(() => {
+    setOpen(false)
+  }, [setOpen])
+
+  // Reset zoom and pan when viewport changes
+  React.useEffect(() => {
+    handleFit()
+  }, [viewport, handleFit])
 
   const selectedSlide = slides[selectedSlideIndex] ?? null
   const selectedSlideId = selectedSlide?.id ?? ""
@@ -234,6 +340,8 @@ export default function HeroSliderEditorPage() {
   selectedSlideIndexRef.current = selectedSlideIndex
   const selectedLayerIndexRef = React.useRef(selectedLayerIndex)
   selectedLayerIndexRef.current = selectedLayerIndex
+  const selectedLayerIndicesRef = React.useRef(selectedLayerIndices)
+  selectedLayerIndicesRef.current = selectedLayerIndices
   const viewportRef = React.useRef(viewport)
   viewportRef.current = viewport
 
@@ -244,7 +352,9 @@ export default function HeroSliderEditorPage() {
   // ─── Dirty tracking ──────────────────────────────────────────────────
 
   const savedSnapshotRef = React.useRef<string>("")
-  const isDirty = JSON.stringify(slides) !== savedSnapshotRef.current && savedSnapshotRef.current !== ""
+  const isDirty =
+    JSON.stringify(slides) !== savedSnapshotRef.current &&
+    savedSnapshotRef.current !== ""
 
   React.useEffect(() => {
     if (!isDirty) return
@@ -326,10 +436,14 @@ export default function HeroSliderEditorPage() {
       ;(["desktop", "tablet", "mobile"] as ViewportMode[]).forEach((vp) => {
         slide.layers[vp].forEach((layer, j) => {
           if (layer.type === "image" && !layer.src) {
-            errors.push(`Slide ${i + 1} [${vp}], Layer "${layer.name || `Layer ${j + 1}`}": Chưa có ảnh.`)
+            errors.push(
+              `Slide ${i + 1} [${vp}], Layer "${layer.name || `Layer ${j + 1}`}": Chưa có ảnh.`
+            )
           }
           if (layer.type === "button" && !layer.link) {
-            errors.push(`Slide ${i + 1} [${vp}], Layer "${layer.name || `Layer ${j + 1}`}": Nút bấm chưa có link.`)
+            errors.push(
+              `Slide ${i + 1} [${vp}], Layer "${layer.name || `Layer ${j + 1}`}": Nút bấm chưa có link.`
+            )
           }
         })
       })
@@ -390,10 +504,7 @@ export default function HeroSliderEditorPage() {
     setSelectedSlideIndex(newIndex)
   }
 
-  const updateSlide = (
-    index: number,
-    updater: (s: SlideData) => SlideData,
-  ) => {
+  const updateSlide = (index: number, updater: (s: SlideData) => SlideData) => {
     setSlides((prev) => prev.map((s, i) => (i === index ? updater(s) : s)))
   }
 
@@ -416,6 +527,7 @@ export default function HeroSliderEditorPage() {
       layers: { ...s.layers, [vp]: [...s.layers[vp], newLayer] },
     }))
     layerHistory.pushSnapshot(slideId, vp, oldLayers, [...oldLayers, newLayer])
+    setSelectedLayerIndex(oldLayers.length)
   }
 
   const removeLayer = (index: number) => {
@@ -441,7 +553,9 @@ export default function HeroSliderEditorPage() {
     const vp = viewportRef.current
     if (!slide || !slideId) return
     const oldLayers = slide.layers[vp]
-    const newLayers = oldLayers.map((l, i) => (i === index ? { ...l, locked: !l.locked } : l))
+    const newLayers = oldLayers.map((l, i) =>
+      i === index ? { ...l, locked: !l.locked } : l
+    )
     updateSlide(slideIdx, (s) => ({
       ...s,
       layers: { ...s.layers, [vp]: newLayers },
@@ -469,7 +583,7 @@ export default function HeroSliderEditorPage() {
 
   const updateLayer = (
     layerIndex: number,
-    updater: (l: SlideLayer) => SlideLayer,
+    updater: (l: SlideLayer) => SlideLayer
   ) => {
     const slide = selectedSlideRef.current
     const slideId = selectedSlideIdRef.current
@@ -477,7 +591,9 @@ export default function HeroSliderEditorPage() {
     const vp = viewportRef.current
     if (!slide || !slideId) return
     const oldLayers = slide.layers[vp]
-    const newLayers = oldLayers.map((l, i) => (i === layerIndex ? updater(l) : l))
+    const newLayers = oldLayers.map((l, i) =>
+      i === layerIndex ? updater(l) : l
+    )
     updateSlide(slideIdx, (s) => ({
       ...s,
       layers: { ...s.layers, [vp]: newLayers },
@@ -488,32 +604,70 @@ export default function HeroSliderEditorPage() {
   // Direct layer update — NO history push (used during drag/resize)
   const updateLayerDirect = (
     layerIndex: number,
-    updater: (l: SlideLayer) => SlideLayer,
+    updater: (l: SlideLayer) => SlideLayer
   ) => {
     const slideIdx = selectedSlideIndexRef.current
     const vp = viewportRef.current
     updateSlide(slideIdx, (s) => ({
       ...s,
-      layers: { ...s.layers, [vp]: s.layers[vp].map((l, i) => (i === layerIndex ? updater(l) : l)) },
+      layers: {
+        ...s.layers,
+        [vp]: s.layers[vp].map((l, i) => (i === layerIndex ? updater(l) : l)),
+      },
     }))
   }
 
   const updateLayerPosition = (
     layerIndex: number,
     left: number,
-    top: number,
+    top: number
   ) => {
-    updateLayerDirect(layerIndex, (l) => ({
-      ...l,
-      left: `${left}%`,
-      top: `${top}%`,
-    }))
+    const slide = selectedSlideRef.current
+    const vp = viewportRef.current
+    if (!slide) return
+
+    const draggedLayer = slide.layers[vp][layerIndex]
+    if (!draggedLayer) return
+
+    const oldLeft = parseFloat(draggedLayer.left || "0")
+    const oldTop = parseFloat(draggedLayer.top || "0")
+    const dLeft = left - oldLeft
+    const dTop = top - oldTop
+
+    const indices = selectedLayerIndicesRef.current
+    if (indices.includes(layerIndex)) {
+      const slideIdx = selectedSlideIndexRef.current
+      updateSlide(slideIdx, (s) => ({
+        ...s,
+        layers: {
+          ...s.layers,
+          [vp]: s.layers[vp].map((l, i) => {
+            if (indices.includes(i) && !l.locked) {
+              const lLeft = parseFloat(l.left || "0")
+              const lTop = parseFloat(l.top || "0")
+              return {
+                ...l,
+                left: `${Math.round(lLeft + dLeft)}%`,
+                top: `${Math.round(lTop + dTop)}%`,
+              }
+            }
+            return l
+          }),
+        },
+      }))
+    } else {
+      updateLayerDirect(layerIndex, (l) => ({
+        ...l,
+        left: `${left}%`,
+        top: `${top}%`,
+      }))
+    }
   }
 
   const updateLayerSize = (
     layerIndex: number,
     width: number,
-    height: number,
+    height: number
   ) => {
     updateLayerDirect(layerIndex, (l) => ({
       ...l,
@@ -552,74 +706,181 @@ export default function HeroSliderEditorPage() {
     if (!mediaPickerTarget) return
     const { layerIndex, type } = mediaPickerTarget
 
-    updateLayer(layerIndex, (l) =>
-      type === "mobile"
-        ? { ...l, srcMobile: media.secureUrl || media.url }
-        : {
-            ...l,
-            mediaId: media.id,
-            src: media.secureUrl || media.url,
-            alt: media.altText || l.alt,
-          },
-    )
-  }
-
-  // ─── Crop ──────────────────────────────────────────────────────────────
-
-  const handleCropStart = () => {
-    const existingCrop = selectedLayer?.crop
-    if (existingCrop) {
-      setCropRect({ x: existingCrop.x, y: existingCrop.y, width: existingCrop.width, height: existingCrop.height })
-    } else {
-      setCropRect({ x: 10, y: 10, width: 80, height: 80 })
+    if (type === "mobile") {
+      updateLayer(layerIndex, (l) => ({
+        ...l,
+        srcMobile: media.secureUrl || media.url,
+      }))
+      return
     }
-    setCropMode(true)
-  }
 
-  const handleCropApply = () => {
-    if (selectedLayerIndex === null) return
-    updateLayer(selectedLayerIndex, (l) => ({ ...l, crop: { ...cropRect } }))
-    setCropMode(false)
-  }
+    const src = media.secureUrl || media.url
+    const alt = media.altText || ""
 
-  const handleCropCancel = () => {
-    setCropMode(false)
-  }
+    const applyLayerImage = (imgW?: number, imgH?: number) => {
+      updateLayer(layerIndex, (l) => {
+        let sizeProps = {}
+        if (imgW && imgH) {
+          const canvasSize = CANVAS_SIZES[viewportRef.current]
 
-  const handleCropReset = () => {
-    if (selectedLayerIndex === null) return
-    updateLayer(selectedLayerIndex, (l) => ({ ...l, crop: undefined }))
-    setCropMode(false)
+          // Raw percentages based on natural image size
+          let wPercent = (imgW / canvasSize.width) * 100
+          let hPercent = (imgH / canvasSize.height) * 100
+
+          // Clamp: if image is larger than canvas in either dimension,
+          // scale down proportionally so the longest side fits exactly 100%.
+          if (wPercent > 100 || hPercent > 100) {
+            const scaleFactor = Math.min(100 / wPercent, 100 / hPercent)
+            wPercent = wPercent * scaleFactor
+            hPercent = hPercent * scaleFactor
+          }
+
+          wPercent = Math.round(wPercent)
+          hPercent = Math.round(hPercent)
+
+          // Center the layer inside the canvas
+          const leftPercent = Math.round((100 - wPercent) / 2)
+          const topPercent = Math.round((100 - hPercent) / 2)
+
+          sizeProps = {
+            width: `${wPercent}%`,
+            height: `${hPercent}%`,
+            left: `${leftPercent}%`,
+            top: `${topPercent}%`,
+          }
+        }
+        return {
+          ...l,
+          mediaId: media.id,
+          src,
+          alt: alt || l.alt,
+          objectFit: "cover",
+          ...sizeProps,
+        }
+      })
+    }
+
+    if (media.width && media.height) {
+      applyLayerImage(media.width, media.height)
+    } else {
+      const img = new Image()
+      img.src = src
+      img.onload = () => {
+        applyLayerImage(img.naturalWidth, img.naturalHeight)
+      }
+      img.onerror = () => {
+        applyLayerImage()
+      }
+    }
   }
 
   // ─── Keyboard Shortcuts ──────────────────────────────────────────────
 
-  const handleDeleteLayer = React.useCallback(() => {
-    if (selectedLayerIndex !== null) removeLayer(selectedLayerIndex)
-  }, [selectedLayerIndex, removeLayer])
-
-  const handleDuplicateLayer = React.useCallback(() => {
-    const layerIdx = selectedLayerIndexRef.current
+  const removeSelectedLayers = React.useCallback(() => {
     const slide = selectedSlideRef.current
     const slideId = selectedSlideIdRef.current
     const slideIdx = selectedSlideIndexRef.current
     const vp = viewportRef.current
-    if (layerIdx === null || !slide || !slideId) return
-    const layerToDup = slide.layers[vp][layerIdx]
-    if (!layerToDup) return
-    const dup = {
-      ...JSON.parse(JSON.stringify(layerToDup)),
-      name: `${layerToDup.name || layerToDup.type} (copy)`,
-      zIndex: slide.layers[vp].length,
-    }
+    const indices = selectedLayerIndicesRef.current
+    if (!slide || !slideId || indices.length === 0) return
+
     const oldLayers = slide.layers[vp]
-    const newLayers = [...oldLayers, dup]
+    const newLayers = oldLayers.filter((_, i) => !indices.includes(i))
+    const reorderedLayers = newLayers.map((l, i) => ({ ...l, zIndex: i }))
+
+    updateSlide(slideIdx, (s) => ({
+      ...s,
+      layers: { ...s.layers, [vp]: reorderedLayers },
+    }))
+    layerHistory.pushSnapshot(slideId, vp, oldLayers, reorderedLayers)
+    setSelectedLayerIndices([])
+  }, [updateSlide, layerHistory])
+
+  const handleDeleteLayer = React.useCallback(() => {
+    removeSelectedLayers()
+  }, [removeSelectedLayers])
+
+  const handleDuplicateLayer = React.useCallback(() => {
+    const slide = selectedSlideRef.current
+    const slideId = selectedSlideIdRef.current
+    const slideIdx = selectedSlideIndexRef.current
+    const vp = viewportRef.current
+    const indices = selectedLayerIndicesRef.current
+    if (!slide || !slideId || indices.length === 0) return
+
+    const oldLayers = slide.layers[vp]
+    const dups = indices
+      .map((idx) => oldLayers[idx])
+      .filter(Boolean)
+      .map((layerToDup, index) => {
+        const currentLeft = parseFloat(layerToDup.left || "0")
+        const currentTop = parseFloat(layerToDup.top || "0")
+        return {
+          ...JSON.parse(JSON.stringify(layerToDup)),
+          left: `${Math.min(100, Math.max(0, currentLeft + 4))}%`,
+          top: `${Math.min(100, Math.max(0, currentTop + 4))}%`,
+          name: `${layerToDup.name || layerToDup.type} (copy)`,
+          zIndex: oldLayers.length + index,
+        }
+      })
+
+    const newLayers = [...oldLayers, ...dups]
     updateSlide(slideIdx, (s) => ({
       ...s,
       layers: { ...s.layers, [vp]: newLayers },
     }))
     layerHistory.pushSnapshot(slideId, vp, oldLayers, newLayers)
+
+    const newIndices = dups.map((_, i) => oldLayers.length + i)
+    setSelectedLayerIndices(newIndices)
   }, [updateSlide, layerHistory])
+
+  const handleCopy = React.useCallback(() => {
+    const slide = selectedSlideRef.current
+    const vp = viewportRef.current
+    const indices = selectedLayerIndicesRef.current
+    if (!slide || indices.length === 0) return
+
+    const layersToCopy = indices
+      .map((idx) => slide.layers[vp][idx])
+      .filter(Boolean)
+
+    setClipboard(layersToCopy)
+  }, [])
+
+  const handlePaste = React.useCallback(() => {
+    const slide = selectedSlideRef.current
+    const slideId = selectedSlideIdRef.current
+    const slideIdx = selectedSlideIndexRef.current
+    const vp = viewportRef.current
+    if (!slide || !slideId || clipboard.length === 0) return
+
+    const oldLayers = slide.layers[vp]
+    const pastedLayers = clipboard.map((layer, index) => {
+      const currentLeft = parseFloat(layer.left || "0")
+      const currentTop = parseFloat(layer.top || "0")
+      const newLeft = `${Math.min(100, Math.max(0, currentLeft + 4))}%`
+      const newTop = `${Math.min(100, Math.max(0, currentTop + 4))}%`
+
+      return {
+        ...JSON.parse(JSON.stringify(layer)),
+        left: newLeft,
+        top: newTop,
+        name: `${layer.name || layer.type} (copy)`,
+        zIndex: oldLayers.length + index,
+      }
+    })
+
+    const newLayers = [...oldLayers, ...pastedLayers]
+    updateSlide(slideIdx, (s) => ({
+      ...s,
+      layers: { ...s.layers, [vp]: newLayers },
+    }))
+    layerHistory.pushSnapshot(slideId, vp, oldLayers, newLayers)
+
+    const newIndices = pastedLayers.map((_, i) => oldLayers.length + i)
+    setSelectedLayerIndices(newIndices)
+  }, [clipboard, updateSlide, layerHistory])
 
   const handleNudgeLayer = React.useCallback(
     (dx: number, dy: number) => {
@@ -632,16 +893,14 @@ export default function HeroSliderEditorPage() {
       const currentTop = parseFloat(layer?.top ?? "0")
       updateLayerPosition(layerIdx, currentLeft + dx, currentTop + dy)
     },
-    [updateLayerPosition],
+    [updateLayerPosition]
   )
 
   const handleEscape = React.useCallback(() => {
-    if (cropMode) {
-      setCropMode(false)
-    } else if (selectedLayerIndex !== null) {
+    if (selectedLayerIndex !== null) {
       setSelectedLayerIndex(null)
     }
-  }, [cropMode, selectedLayerIndex])
+  }, [selectedLayerIndex])
 
   const handleUndo = React.useCallback(() => {
     const slideId = selectedSlideIdRef.current
@@ -661,6 +920,8 @@ export default function HeroSliderEditorPage() {
     onDuplicateLayer: handleDuplicateLayer,
     onNudgeLayer: handleNudgeLayer,
     onEscape: handleEscape,
+    onCopy: handleCopy,
+    onPaste: handlePaste,
     enabled: !isLoading,
   })
 
@@ -676,21 +937,15 @@ export default function HeroSliderEditorPage() {
 
   return (
     <div className="flex h-[calc(100vh-64px)] flex-col">
-      {/* Top Toolbar — context-sensitive */}
-      <div className="h-12 border-b bg-card flex items-center px-2 shrink-0">
-        <button
-          type="button"
-          onClick={() => {
-            if (isDirty && !confirm("Bạn có thay đổi chưa lưu. Bạn có muốn thoát không?")) return
-            router.push("/hero-slider")
-          }}
-          className="flex items-center gap-1 px-2 py-1.5 text-xs text-muted-foreground hover:text-foreground hover:bg-muted rounded-md transition-colors mr-1"
-        >
-          <IconArrowLeft className="size-3.5" />
-          Quay lại
-        </button>
-      </div>
       <TopToolbar
+        onBack={() => {
+          if (
+            isDirty &&
+            !confirm("Bạn có thay đổi chưa lưu. Bạn có muốn thoát không?")
+          )
+            return
+          router.push("/hero-slider")
+        }}
         mode={toolbarMode}
         viewport={viewport}
         onViewportChange={setViewport}
@@ -710,92 +965,149 @@ export default function HeroSliderEditorPage() {
             ? () => removeLayer(selectedLayerIndex)
             : undefined
         }
-        onCrop={
-          selectedLayerIndex !== null && selectedLayer?.src
-            ? handleCropStart
-            : undefined
+        onDuplicateLayer={
+          selectedLayerIndex !== null ? handleDuplicateLayer : undefined
         }
-        cropMode={cropMode}
-        onCropApply={handleCropApply}
-        onCropCancel={handleCropCancel}
-        onCropReset={selectedLayer?.crop ? handleCropReset : undefined}
         onSave={handleSave}
         onReload={() => {
-          if (isDirty && !confirm("Bạn có thay đổi chưa lưu. Bạn có muốn tải lại không?")) return
+          if (
+            isDirty &&
+            !confirm("Bạn có thay đổi chưa lưu. Bạn có muốn tải lại không?")
+          )
+            return
           loadSection()
         }}
         isSaving={isSaving}
         isDirty={isDirty}
-        onOpenProperties={selectedLayerIndex !== null
-          ? () => setPropertiesOpen((prev) => !prev)
-          : undefined}
+        onOpenProperties={
+          selectedLayerIndex !== null
+            ? () => setPropertiesOpen((prev) => !prev)
+            : undefined
+        }
         onUndo={handleUndo}
         onRedo={handleRedo}
         canUndo={layerHistory.canUndo(selectedSlideIdRef.current)}
         canRedo={layerHistory.canRedo(selectedSlideIdRef.current)}
         onPreview={() => {
           sessionStorage.setItem("hero-slider-preview", JSON.stringify(slides))
-          const win = window.open("", "hero-slider-preview")
-          if (win && win.location.pathname === "/hero-slider/preview") {
-            win.location.reload()
+          localStorage.setItem("hero-slider-preview", JSON.stringify(slides))
+          const win = window.open("/hero-slider/preview", "hero-slider-preview")
+          if (win) {
             win.focus()
-          } else {
-            window.open("/hero-slider/preview", "hero-slider-preview")
           }
         }}
+        zoom={zoomScale}
+        onZoomChange={setZoomScale}
+        onFit={handleFit}
       />
 
       {/* Main area: Left Sidebar + Canvas */}
-      <div className="flex flex-1 min-h-0">
-        {/* Left Sidebar — Slides + Layers tabs */}
-        <LeftSidebar
-          slides={slides}
-          selectedSlideIndex={selectedSlideIndex}
-          selectedLayerIndex={selectedLayerIndex}
-          viewport={viewport}
-          onSelectSlide={(i) => {
-            setSelectedSlideIndex(i)
-            setSelectedLayerIndex(null)
-          }}
-          onSelectLayer={setSelectedLayerIndex}
-          onReorderSlides={reorderSlides}
-          onAddSlide={addSlide}
-          onRemoveSlide={removeSlide}
-          onAddLayer={addLayer}
-          onRemoveLayer={removeLayer}
-          onReorderLayers={reorderLayers}
-          onUpdateLayer={updateLayer}
-          onToggleLayerLock={toggleLayerLock}
-        />
+      <div className="flex min-h-0 flex-1">
+        {/* Left area: Canvas on top, BottomPanel at the bottom */}
+        <div className="flex min-h-0 flex-1 flex-col">
+          {/* Canvas area */}
+          <div className="relative min-w-0 flex-1">
+            {selectedSlide && (
+              <>
+                <SliderCanvas
+                  slide={selectedSlide}
+                  viewport={viewport}
+                  selectedLayerIndex={selectedLayerIndex}
+                  onSelectLayer={setSelectedLayerIndex}
+                  selectedLayerIndices={selectedLayerIndices}
+                  onSelectLayers={setSelectedLayerIndices}
+                  onUpdateLayerPosition={updateLayerPosition}
+                  onUpdateLayerSize={updateLayerSize}
+                  onUpdateLayerDirect={updateLayerDirect}
+                  onDragStart={handleDragStart}
+                  onDragEnd={handleDragEnd}
+                  zoomScale={zoomScale}
+                  onZoomScaleChange={setZoomScale}
+                  panOffset={panOffset}
+                  onPanOffsetChange={setPanOffset}
+                  showGradientHandles={activeGradientEditIndex === selectedLayerIndex}
+                />
+                {layersPanelOpen ? (
+                  <FloatingLayersPanel
+                    layers={currentLayers}
+                    selectedLayerIndex={selectedLayerIndex}
+                    onSelectLayer={setSelectedLayerIndex}
+                    onAddLayer={addLayer}
+                    onRemoveLayer={removeLayer}
+                    onReorderLayers={reorderLayers}
+                    onUpdateLayer={updateLayer}
+                    onToggleLayerLock={toggleLayerLock}
+                    onClose={() => setLayersPanelOpen(false)}
+                  />
+                ) : (
+                  <div className="absolute top-4 left-4 z-30 flex flex-col gap-2">
+                    <Button
+                      size="icon"
+                      variant="outline"
+                      className="size-9 rounded-xl border border-border bg-background/80 shadow-lg backdrop-blur-md hover:bg-background"
+                      onClick={() => setLayersPanelOpen(true)}
+                      title="Mở danh sách Layer"
+                    >
+                      <IconLayoutSidebar className="size-4 text-foreground" />
+                    </Button>
+                    <Button
+                      size="icon"
+                      variant="outline"
+                      className="size-9 rounded-xl border border-border bg-background/80 shadow-lg backdrop-blur-md hover:bg-background"
+                      onClick={() => addLayer("image")}
+                      title="Thêm Layer Ảnh"
+                    >
+                      <IconPhoto className="size-4 text-foreground" />
+                    </Button>
+                    <Button
+                      size="icon"
+                      variant="outline"
+                      className="size-9 rounded-xl border border-border bg-background/80 shadow-lg backdrop-blur-md hover:bg-background"
+                      onClick={() => addLayer("text")}
+                      title="Thêm Layer Chữ"
+                    >
+                      <IconTypography className="size-4 text-foreground" />
+                    </Button>
+                    <Button
+                      size="icon"
+                      variant="outline"
+                      className="size-9 rounded-xl border border-border bg-background/80 shadow-lg backdrop-blur-md hover:bg-background"
+                      onClick={() => addLayer("button")}
+                      title="Thêm Layer Nút"
+                    >
+                      <IconClick className="size-4 text-foreground" />
+                    </Button>
+                  </div>
+                )}
+              </>
+            )}
+          </div>
 
-        {/* Canvas area */}
-        <div className="flex-1 min-w-0 relative">
-          {selectedSlide && (
-            <SliderCanvas
-              slide={selectedSlide}
-              viewport={viewport}
-              selectedLayerIndex={selectedLayerIndex}
-              onSelectLayer={setSelectedLayerIndex}
-              onUpdateLayerPosition={updateLayerPosition}
-              onUpdateLayerSize={updateLayerSize}
-              cropMode={cropMode}
-              cropRect={cropRect}
-              onCropRectChange={setCropRect}
-              onDragStart={handleDragStart}
-              onDragEnd={handleDragEnd}
-            />
-          )}
+          {/* Bottom Panel — Slides */}
+          <BottomPanel
+            slides={slides}
+            selectedSlideIndex={selectedSlideIndex}
+            viewport={viewport}
+            onSelectSlide={(i) => {
+              setSelectedSlideIndex(i)
+              setSelectedLayerIndex(null)
+            }}
+            onReorderSlides={reorderSlides}
+            onAddSlide={addSlide}
+            onRemoveSlide={removeSlide}
+          />
         </div>
 
         {/* Properties Panel — show when toggled and a layer is selected */}
         {propertiesOpen && selectedLayerIndex !== null && (
-          <div className="w-[280px] border-l bg-card overflow-y-auto shrink-0 p-3">
+          <div className="w-[280px] shrink-0 overflow-y-auto border-l bg-card p-3">
             <PropertiesPanel
               slide={selectedSlide}
               selectedLayerIndex={selectedLayerIndex}
               viewport={viewport}
               onUpdateLayer={updateLayer}
               onPickMedia={openMediaPicker}
+              onStartGradientEdit={() => setActiveGradientEditIndex(selectedLayerIndex)}
             />
           </div>
         )}
