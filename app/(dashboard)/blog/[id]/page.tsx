@@ -3288,6 +3288,7 @@ function BlogRichTextEditor({
   const [isImageLibraryOpen, setIsImageLibraryOpen] = React.useState(false)
   const [imageActionMode, setImageActionMode] = React.useState<"insert" | "replace">("insert")
   const [imagePickerInitialUrl, setImagePickerInitialUrl] = React.useState<string | null>(null)
+  const [imagePickerInitialId, setImagePickerInitialId] = React.useState<string | null>(null)
   const [imagePickerInitialDraft, setImagePickerInitialDraft] = React.useState<{
     altText?: string
     title?: string
@@ -3993,9 +3994,10 @@ function BlogRichTextEditor({
             onClick={() => {
               setImageActionMode("replace")
               const imageAttrs = editor?.getAttributes("image") as
-                | { src?: string; alt?: string; title?: string; caption?: string }
+                | { src?: string; alt?: string; title?: string; caption?: string; mediaId?: string }
                 | undefined
               setImagePickerInitialUrl(imageAttrs?.src ?? null)
+              setImagePickerInitialId(imageAttrs?.mediaId ?? null)
               setImagePickerInitialDraft({
                 altText: imageAttrs?.alt ?? "",
                 title: imageAttrs?.title ?? "",
@@ -4108,9 +4110,10 @@ function BlogRichTextEditor({
               onClick={() => {
                 setImageActionMode("replace")
                 const imageAttrs = editor?.getAttributes("image") as
-                  | { src?: string; alt?: string; title?: string; caption?: string }
+                  | { src?: string; alt?: string; title?: string; caption?: string; mediaId?: string }
                   | undefined
                 setImagePickerInitialUrl(imageAttrs?.src ?? null)
+                setImagePickerInitialId(imageAttrs?.mediaId ?? null)
                 setImagePickerInitialDraft({
                   altText: imageAttrs?.alt ?? "",
                   title: imageAttrs?.title ?? "",
@@ -4139,10 +4142,12 @@ function BlogRichTextEditor({
           if (!nextOpen) {
             setImageActionMode("insert")
             setImagePickerInitialUrl(null)
+            setImagePickerInitialId(null)
             setImagePickerInitialDraft(null)
           }
         }}
         initialSelectedUrl={imagePickerInitialUrl}
+        initialSelectedId={imagePickerInitialId}
         initialDraft={imagePickerInitialDraft}
         captionOnly
         lockDraftOnSelection={imageActionMode === "replace"}
@@ -6496,6 +6501,8 @@ export default function BlogPostDetailPage() {
           setCoverUrl(media.url)
         }}
         title="Chọn ảnh đại diện bài viết"
+        initialSelectedUrl={coverUrl || null}
+        initialSelectedId={getValues("coverMediaId") || null}
       />
 
       {/* SEO Slide-over Drawer */}

@@ -426,7 +426,7 @@ export default function CategoriesPage() {
               <TableHead className="h-12">Danh mục cha</TableHead>
               <TableHead className="h-12">Slug</TableHead>
               <TableHead className="h-12">Trạng thái</TableHead>
-              <TableHead className="h-12">Ngày tạo</TableHead>
+              <TableHead className="h-12">Ngày cập nhật</TableHead>
               <TableHead className="h-12 text-right">Thao tác</TableHead>
             </TableRow>
           </TableHeader>
@@ -519,7 +519,10 @@ export default function CategoriesPage() {
                     </Badge>
                   </TableCell>
                   <TableCell className="text-muted-foreground text-sm">
-                    {category.createdAt ? new Date(category.createdAt).toLocaleDateString("vi-VN") : "N/A"}
+                    {(() => {
+                      const dateStr = category.updatedAt || category.createdAt
+                      return dateStr ? new Date(dateStr).toLocaleDateString("vi-VN") : "N/A"
+                    })()}
                   </TableCell>
                   <TableCell className="text-right">
                     <DropdownMenu>

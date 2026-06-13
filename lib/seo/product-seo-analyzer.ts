@@ -34,6 +34,7 @@ export type ProductSeoAnalyzerInput = {
   shortDescriptionHtml?: string | null
   imageAlts?: Array<string | null | undefined>
   hasImages?: boolean
+  siteUrl?: string | null
 }
 
 const htmlTagPattern = /<[^>]*>/g
@@ -48,6 +49,18 @@ function normalizeText(value?: string | null) {
     .replace(/Đ/g, "D")
     .toLowerCase()
     .trim()
+}
+
+export function toSlug(text: string): string {
+  return text
+    .toLowerCase()
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '') // Loai bo dau tieng Viet
+    .replace(/[đĐ]/g, 'd')
+    .replace(/[^a-z0-9\s-]/g, '')    // Loai bo ky tu dac biet
+    .trim()
+    .replace(/\s+/g, '-')            // Thay the khoang trang bang dau gach ngang
+    .replace(/-+/g, '-')             // Tranh nhieu dau gach ngang lien nhau
 }
 
 function stripHtml(value?: string | null) {
@@ -77,8 +90,35 @@ function getKeywords(value?: string | null) {
 }
 
 function includesKeyword(value: string, keywords: string[]) {
-  const normalizedValue = normalizeText(value)
-  return keywords.some((keyword) => normalizedValue.includes(normalizeText(keyword)))
+  if (!value || !keywords.length) return false
+  const normalizedValueNFC = value.normalize('NFC').toLowerCase()
+  const normalizedValueAccentless = normalizeText(value)
+
+  return keywords.some((keyword) => {
+    const normalizedKeywordNFC = keyword.normalize('NFC').toLowerCase().trim()
+    const normalizedKeywordAccentless = normalizeText(keyword)
+    if (!normalizedKeywordNFC) return false
+    
+    return (
+      normalizedValueNFC.includes(normalizedKeywordNFC) ||
+      normalizedValueAccentless.includes(normalizedKeywordAccentless)
+    )
+  })
+}
+
+function includesKeywordInUrl(slug: string, keywords: string[]) {
+  if (!slug || !keywords.length) return false
+  const normalizedSlug = toSlug(slug)
+  
+  return keywords.some((keyword) => {
+    const keywordSlug = toSlug(keyword)
+    if (!keywordSlug) return false
+    
+    return (
+      normalizedSlug.includes(keywordSlug) ||
+      normalizedSlug.replace(/-/g, '').includes(keywordSlug.replace(/-/g, ''))
+    )
+  })
 }
 
 function countKeywordOccurrences(value: string, keywords: string[]) {
@@ -141,6 +181,15 @@ function makeCheck(
   }
 }
 
+function isKeywordNearStart(title: string, keyword: string): boolean {
+  if (!title || !keyword) return false
+  const normTitle = normalizeText(title)
+  const normKeyword = normalizeText(keyword)
+  const index = normTitle.indexOf(normKeyword)
+  if (index === -1) return false
+  return index <= Math.max(0, normTitle.length / 2)
+}
+
 export function analyzeProductSeo(input: ProductSeoAnalyzerInput): ProductSeoAnalysis {
   const keywords = getKeywords(input.focusKeyword)
   const title = input.metaTitle || input.productName || ""
@@ -152,15 +201,46 @@ export function analyzeProductSeo(input: ProductSeoAnalyzerInput): ProductSeoAna
   const headings = getHeadings(input.descriptionHtml)
   const links = getLinks(input.descriptionHtml)
   const paragraphs = getParagraphs(input.descriptionHtml)
-  const imageAlts = input.imageAlts?.filter(Boolean).map(String) ?? []
+
+  // Extract inline image alts from descriptionHtml as well
+  const descriptionImages = Array.from((input.descriptionHtml ?? "").matchAll(/<img\s+[^>]*alt=["']([^"']*)["']/gi))
+    .map((match) => match[1])
+    .filter(Boolean)
+
+  const imageAlts = [
+    ...(input.imageAlts?.filter(Boolean).map(String) ?? []),
+    ...descriptionImages
+  ]
+
   const words = getWords(content)
   const wordCount = words.length
   const keywordOccurrences = keywords.length ? countKeywordOccurrences(content, keywords) : 0
   const keywordDensity = wordCount ? Number(((keywordOccurrences / wordCount) * 100).toFixed(2)) : 0
   const firstTenPercent = words.slice(0, Math.max(20, Math.ceil(wordCount * 0.1))).join(" ")
   const hasKeyword = keywords.length > 0
-  const hasInternalLink = links.some((href) => href.startsWith("/") || href.includes("dukystore"))
-  const hasExternalLink = links.some((href) => /^https?:\/\//i.test(href) && !href.includes("dukystore"))
+
+  const siteUrl = input.siteUrl || "dukystore.com"
+  const normalizedSiteUrl = siteUrl.toLowerCase()
+  const hasInternalLink = links.some((href) => {
+    const lowerHref = href.toLowerCase()
+    return (
+      lowerHref.startsWith("/") ||
+      lowerHref.startsWith("#") ||
+      lowerHref.startsWith("?") ||
+      lowerHref.includes("dukystore") ||
+      lowerHref.includes(normalizedSiteUrl)
+    )
+  })
+  const hasExternalLink = links.some((href) => {
+    const lowerHref = href.toLowerCase()
+    const isHttp = /^https?:\/\//i.test(lowerHref)
+    return (
+      isHttp &&
+      !lowerHref.includes("dukystore") &&
+      !lowerHref.includes(normalizedSiteUrl)
+    )
+  })
+
   const longParagraphCount = paragraphs.filter((paragraph) => getWords(paragraph).length > 120).length
   const hasImage = Boolean(input.hasImages || imageAlts.length || hasEmbeddedMedia(input.descriptionHtml))
 
@@ -177,7 +257,7 @@ export function analyzeProductSeo(input: ProductSeoAnalyzerInput): ProductSeoAna
           hasKeyword && includesKeyword(metaDescription, keywords),
           10
         ),
-        makeCheck("keyword-url", "Focus keyword nằm trong URL", hasKeyword && includesKeyword(slug, keywords), 8),
+        makeCheck("keyword-url", "Focus keyword nằm trong URL", hasKeyword && includesKeywordInUrl(slug, keywords), 8),
         makeCheck(
           "keyword-intro",
           "Focus keyword xuất hiện trong 10% đầu nội dung",
@@ -234,7 +314,7 @@ export function analyzeProductSeo(input: ProductSeoAnalyzerInput): ProductSeoAna
         makeCheck(
           "keyword-title-start",
           "Focus keyword ở gần đầu SEO title",
-          hasKeyword && normalizeText(title).startsWith(normalizeText(keywords[0])),
+          hasKeyword && keywords.some((keyword) => isKeywordNearStart(title, keyword)),
           5,
           undefined,
           hasKeyword && includesKeyword(title, keywords)

@@ -60,6 +60,7 @@ function MediaContent() {
   const [editDraft, setEditDraft] = React.useState({
     altText: "",
     title: "",
+    fileName: "",
   })
   const [isBulkDeleteOpen, setIsBulkDeleteOpen] = React.useState(false)
   const [isMultiSelectMode, setIsMultiSelectMode] = React.useState(false)
@@ -131,6 +132,7 @@ function MediaContent() {
     setEditDraft({
       altText: media.altText ?? "",
       title: media.title ?? "",
+      fileName: (media.fileName ?? media.filename ?? "").replace(/\.[^.]+$/, ""),
     })
   }
 
@@ -140,16 +142,23 @@ function MediaContent() {
     try {
       setIsUpdatingMedia(true)
       setFeedback(null)
+
+      const originalFullName = editTarget.fileName ?? editTarget.filename ?? ""
+      const dotIndex = originalFullName.lastIndexOf(".")
+      const ext = dotIndex !== -1 ? originalFullName.substring(dotIndex) : ".webp"
+      const finalFileName = editDraft.fileName.trim() ? `${editDraft.fileName.trim().replace(/\.[^.]+$/, "")}${ext}` : undefined
+
       await mediaService.updateMedia(editTarget.id, {
         altText: editDraft.altText.trim() || undefined,
         title: editDraft.title.trim() || undefined,
+        fileName: finalFileName,
       })
       await fetchMedia()
-      setFeedback({ message: "Đã cập nhật metadata ảnh.", tone: "success" })
+      setFeedback({ message: "Đã cập nhật thông tin ảnh.", tone: "success" })
       setEditTarget(null)
     } catch (error) {
       console.error("Failed to update media metadata", error)
-      setFeedback({ message: "Cập nhật metadata ảnh thất bại.", tone: "error" })
+      setFeedback({ message: "Cập nhật thông tin ảnh thất bại.", tone: "error" })
     } finally {
       setIsUpdatingMedia(false)
     }
@@ -893,19 +902,21 @@ function MediaContent() {
               </div>
 
               <div className="grid gap-2">
-                <Label>Tên file đã lưu</Label>
-                <div className="rounded-xl border bg-muted/50 px-3 py-2 text-sm text-muted-foreground">
-                  <p
-                    className="truncate"
-                    title={editTarget.fileName ?? editTarget.filename}
-                  >
-                    {editTarget.fileName ?? editTarget.filename}
-                  </p>
-                  <p className="mt-1 text-xs">
-                    Tên file/URL trên R2 được cố định sau khi upload. Muốn đổi
-                    tên SEO thật, hãy tải lại ảnh với tên mới.
-                  </p>
-                </div>
+                <Label htmlFor="media-edit-filename">Tên file (đổi tên SEO)</Label>
+                <Input
+                  id="media-edit-filename"
+                  value={editDraft.fileName}
+                  onChange={(event) =>
+                    setEditDraft((current) => ({
+                      ...current,
+                      fileName: event.target.value,
+                    }))
+                  }
+                  placeholder="Nhập tên file SEO mới..."
+                />
+                <p className="text-xs text-muted-foreground">
+                  Hỗ trợ đổi tên file thực tế trên R2 & cập nhật tự động toàn bộ link ảnh trong các bài viết.
+                </p>
               </div>
             </div>
           ) : null}

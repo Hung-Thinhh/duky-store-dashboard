@@ -775,6 +775,14 @@ export default function HomeContentPage() {
         onOpenChange={setMediaPickerOpen}
         onSelect={handleMediaSelect}
         title="Chọn ảnh cho nội dung trang chủ"
+        initialSelectedUrl={mediaTarget === "section" ? sectionForm.imagePreviewUrl || null : null}
+        initialSelectedId={
+          mediaTarget === "section"
+            ? sectionForm.imageMediaId || null
+            : mediaTarget === "item"
+            ? itemForm.imageMediaId || null
+            : null
+        }
       />
     </div>
   )

@@ -238,6 +238,7 @@ type VariantValueDraft = {
   colorHex: string | null
 }
 type VariantDraft = {
+  id?: string
   key: string
   values: VariantValueDraft[]
   priceMode: VariantPriceMode
@@ -1628,9 +1629,10 @@ export default function ProductDetailPage() {
   const [mediaPickerReplaceIndex, setMediaPickerReplaceIndex] = React.useState<
     number | null
   >(null)
-  const [mediaItems, setMediaItems] = React.useState<Media[]>([])
-  const [mediaSearch, setMediaSearch] = React.useState("")
-  const [isLoadingMedia, setIsLoadingMedia] = React.useState(false)
+
+  const [draggedOverIndex, setDraggedOverIndex] = React.useState<number | null>(null)
+  const dragItemIndex = React.useRef<number | null>(null)
+
   const [productOptions, setProductOptions] = React.useState<ProductListItem[]>(
     []
   )
@@ -1865,6 +1867,7 @@ export default function ProductDetailPage() {
         descriptionHtml: description,
         imageAlts: [featuredImageAlt],
         hasImages: Boolean(featuredImageSrc || galleryImages.length),
+        siteUrl: storefrontUrl,
       }),
     [
       description,
@@ -1877,6 +1880,7 @@ export default function ProductDetailPage() {
       seoMetaTitle,
       shortDescription,
       slug,
+      storefrontUrl,
     ]
   )
 
@@ -2481,27 +2485,7 @@ export default function ProductDetailPage() {
     setCombineVariantGroups(false)
   }, [currentProductType])
 
-  React.useEffect(() => {
-    if (!mediaPickerOpen) return
 
-    const timeoutId = window.setTimeout(async () => {
-      try {
-        setIsLoadingMedia(true)
-        const response = await mediaService.getMediaList({
-          limit: 60,
-          search: mediaSearch || undefined,
-        })
-        setMediaItems(response.data)
-      } catch (error) {
-        console.error("Failed to fetch media library", error)
-        setMediaItems([])
-      } finally {
-        setIsLoadingMedia(false)
-      }
-    }, 250)
-
-    return () => window.clearTimeout(timeoutId)
-  }, [mediaPickerOpen, mediaSearch])
 
   React.useEffect(() => {
     if (currentProductType !== ProductType.VARIABLE) {
@@ -2557,6 +2541,7 @@ export default function ProductDetailPage() {
           .join("-")
 
         return {
+          id: existing?.id,
           key,
           values,
           priceMode: existing?.priceMode ?? "default",
@@ -2668,6 +2653,63 @@ export default function ProductDetailPage() {
             ? detail.tagIds.filter((tagId) => !tags.includes(tagId))
             : []
         )
+
+        // Load existing variants for VARIABLE products
+        if (detail.type === ProductType.VARIABLE) {
+          try {
+            const existingVariants = await variantService.getVariantsByProduct(
+              params.id as string
+            )
+            if (existingVariants.length) {
+              const drafts: VariantDraft[] = existingVariants.map((v) => {
+                const values: VariantValueDraft[] = []
+                if (v.sizeLabel) {
+                  values.push({
+                    attributeId: "size",
+                    attributeName: "Size",
+                    attributeType: "SIZE",
+                    termId: v.sizeLabel,
+                    termName: v.sizeLabel,
+                    colorHex: null,
+                  })
+                }
+                if (v.colorName) {
+                  values.push({
+                    attributeId: "color",
+                    attributeName: "Màu",
+                    attributeType: "COLOR",
+                    termId: v.colorName,
+                    termName: v.colorName,
+                    colorHex: v.colorHex ?? null,
+                  })
+                }
+                const key = values
+                  .map((val) => `${val.attributeId}:${val.termId}`)
+                  .join("|") || v.id
+                const basePrice = detail.originalPrice ?? 0
+                const baseSalePrice = detail.salePrice ?? null
+                const hasCustomPrice =
+                  (v.price != null && v.price !== basePrice) ||
+                  (v.salePrice != null && v.salePrice !== baseSalePrice)
+                return {
+                  id: v.id,
+                  key,
+                  values,
+                  priceMode: hasCustomPrice
+                    ? ("custom" as VariantPriceMode)
+                    : ("default" as VariantPriceMode),
+                  price: v.price ?? basePrice,
+                  salePrice: v.salePrice ?? baseSalePrice,
+                  sku: v.sku,
+                  isActive: v.isActive,
+                }
+              })
+              setVariantDrafts(drafts)
+            }
+          } catch (variantError) {
+            console.error("Failed to fetch product variants", variantError)
+          }
+        }
       } catch (error) {
         console.error("Failed to fetch product", error)
       } finally {
@@ -2785,6 +2827,9 @@ export default function ProductDetailPage() {
         router.replace(`/products/${nextId}`)
       } else {
         await productService.updateProduct(params.id as string, productPayload)
+        if (productPayload.type === ProductType.VARIABLE) {
+          await createDraftVariants(params.id as string, variantDrafts)
+        }
         setDetailFeedback({
           message: "Cập nhật sản phẩm thành công!",
           tone: "success",
@@ -2944,6 +2989,51 @@ export default function ProductDetailPage() {
     syncGallery(nextImages, nextIds)
   }
 
+  const handleDragStart = (e: React.DragEvent, index: number) => {
+    if (!galleryImages[index]) {
+      e.preventDefault()
+      return
+    }
+    dragItemIndex.current = index
+    e.dataTransfer.effectAllowed = "move"
+  }
+
+  const handleDragOver = (e: React.DragEvent, index: number) => {
+    e.preventDefault()
+    if (dragItemIndex.current !== null && dragItemIndex.current !== index) {
+      setDraggedOverIndex(index)
+    }
+  }
+
+  const handleDragLeave = () => {
+    setDraggedOverIndex(null)
+  }
+
+  const handleDrop = (e: React.DragEvent, targetIndex: number) => {
+    e.preventDefault()
+    setDraggedOverIndex(null)
+    const sourceIndex = dragItemIndex.current
+    if (sourceIndex === null || sourceIndex === targetIndex) return
+
+    const nextImages = [...galleryImages]
+    const nextIds = [...galleryImageIds]
+
+    const [draggedImage] = nextImages.splice(sourceIndex, 1)
+    const [draggedId] = nextIds.splice(sourceIndex, 1)
+
+    const safeTargetIndex = Math.min(targetIndex, nextImages.length)
+    nextImages.splice(safeTargetIndex, 0, draggedImage)
+    nextIds.splice(safeTargetIndex, 0, draggedId)
+
+    syncGallery(nextImages, nextIds)
+    dragItemIndex.current = null
+  }
+
+  const handleDragEnd = () => {
+    dragItemIndex.current = null
+    setDraggedOverIndex(null)
+  }
+
   const splitRelationIds = (value?: string | null) =>
     value
       ? value
@@ -3070,43 +3160,87 @@ export default function ProductDetailPage() {
     productId: string,
     drafts = variantDrafts
   ) => {
-    const activeDrafts = drafts.filter((draft) => draft.isActive)
+    // 1. Fetch current stored variants from the database for this product
+    const existingDbVariants = await variantService
+      .getVariantsByProduct(productId)
+      .catch(() => [])
 
-    await Promise.all(
-      activeDrafts.map((draft, index) =>
-        variantService.createVariant(productId, {
-          productId,
-          name: [productName, ...draft.values.map((value) => value.termName)]
-            .filter(Boolean)
-            .join(" / "),
+    // 2. Identify drafts to create or update
+    const processedDbVariantIds = new Set<string>()
+
+    const createOrUpdatePromises = drafts.map(async (draft, index) => {
+      // Find matching size and color values in the draft
+      const draftSizeLabel =
+        draft.values
+          .filter((value) => value.attributeType === "SIZE" || value.attributeId === "size")
+          .map((value) => value.termName)
+          .join(" / ") || null
+      const draftColorName =
+        draft.values
+          .filter((value) => value.attributeType === "COLOR" || value.attributeId === "color")
+          .map((value) => value.termName)
+          .join(" / ") || null
+      const draftColorHex =
+        draft.values.find((value) => value.attributeType === "COLOR" || value.attributeId === "color")
+          ?.colorHex ?? null
+
+      const price =
+        draft.priceMode === "default"
+          ? (originalPrice ?? 0)
+          : (draft.price ?? 0)
+      const salePriceValue =
+        draft.priceMode === "default"
+          ? (salePrice ?? null)
+          : draft.salePrice
+
+      const name = [productName, ...draft.values.map((value) => value.termName)]
+        .filter(Boolean)
+        .join(" / ")
+
+      // Check if we can find a matching variant by id or by combination in the DB
+      const matchedDbVariant = existingDbVariants.find(
+        (v) =>
+          v.id === draft.id ||
+          (v.sizeLabel === draftSizeLabel && v.colorName === draftColorName)
+      )
+
+      if (matchedDbVariant) {
+        processedDbVariantIds.add(matchedDbVariant.id)
+        // Update existing variant
+        return variantService.updateVariant(matchedDbVariant.id, {
+          name,
           sku: draft.sku,
-          sizeLabel:
-            draft.values
-              .filter((value) => value.attributeType === "SIZE")
-              .map((value) => value.termName)
-              .join(" / ") || null,
-          sizeGender: null,
-          colorName:
-            draft.values
-              .filter((value) => value.attributeType === "COLOR")
-              .map((value) => value.termName)
-              .join(" / ") || null,
-          colorHex:
-            draft.values.find((value) => value.attributeType === "COLOR")
-              ?.colorHex ?? null,
-          price:
-            draft.priceMode === "default"
-              ? (originalPrice ?? 0)
-              : (draft.price ?? 0),
-          salePrice:
-            draft.priceMode === "default"
-              ? (salePrice ?? null)
-              : draft.salePrice,
-          isActive: true,
+          sizeLabel: draftSizeLabel,
+          colorName: draftColorName,
+          colorHex: draftColorHex,
+          price,
+          salePrice: salePriceValue,
+          isActive: draft.isActive,
           sortOrder: index,
         })
-      )
-    )
+      } else {
+        // Create new variant
+        return variantService.createVariant(productId, {
+          name,
+          sku: draft.sku,
+          sizeLabel: draftSizeLabel,
+          sizeGender: null,
+          colorName: draftColorName,
+          colorHex: draftColorHex,
+          price,
+          salePrice: salePriceValue,
+          isActive: draft.isActive,
+          sortOrder: index,
+        })
+      }
+    })
+
+    // 3. Identify variants to delete (those in DB but not processed / matched by any draft)
+    const deletePromises = existingDbVariants
+      .filter((v) => !processedDbVariantIds.has(v.id))
+      .map((v) => variantService.deleteVariant(v.id).catch(() => {}))
+
+    await Promise.all([...createOrUpdatePromises, ...deletePromises])
   }
 
   const filteredRelationOptions = React.useMemo(() => {
@@ -3217,7 +3351,6 @@ export default function ProductDetailPage() {
               .replace(/\s+/g, "-")
               .toUpperCase()
             return variantService.createVariant(params.id as string, {
-              productId: params.id as string,
               name: [productName, size, color].filter(Boolean).join(" / "),
               sku: `${baseSku}-${suffix}`,
               sizeLabel: size,
@@ -3282,6 +3415,20 @@ export default function ProductDetailPage() {
         onSelectMultiple={selectMultipleMediaItems}
         multiple={mediaPickerMode === "gallery"}
         title={mediaPickerMode === "featured" ? "Chọn ảnh đại diện" : "Chọn ảnh Gallery"}
+        initialSelectedUrl={
+          mediaPickerMode === "featured"
+            ? featuredImageSrc
+            : mediaPickerMode === "gallery-replace" && mediaPickerReplaceIndex !== null
+            ? galleryImages[mediaPickerReplaceIndex]
+            : null
+        }
+        initialSelectedId={
+          mediaPickerMode === "featured"
+            ? getValues("thumbnailMediaId")
+            : mediaPickerMode === "gallery-replace" && mediaPickerReplaceIndex !== null
+            ? galleryImageIds[mediaPickerReplaceIndex]
+            : null
+        }
       />
 
 
@@ -4643,7 +4790,7 @@ export default function ProductDetailPage() {
                   Nên có 1 từ khóa chính. Thêm các từ khóa phụ nếu cần mở rộng ngữ nghĩa.
                 </p>
               </div>
-              <div className="hidden flex flex-col gap-2">
+              <div className="flex flex-col gap-2">
                 <Label htmlFor="seo.metaTitle">Tiêu đề meta</Label>
                 <Input
                   id="seo.metaTitle"
@@ -4651,7 +4798,7 @@ export default function ProductDetailPage() {
                   className="rounded-xl"
                 />
               </div>
-              <div className="hidden flex flex-col gap-2">
+              <div className="flex flex-col gap-2">
                 <Label htmlFor="seo.metaDescription">Mô tả meta</Label>
                 <Textarea
                   id="seo.metaDescription"
@@ -4659,7 +4806,7 @@ export default function ProductDetailPage() {
                   className="min-h-[110px] rounded-xl"
                 />
               </div>
-              <div className="hidden flex flex-col gap-2">
+              <div className="flex flex-col gap-2">
                 <Label htmlFor="seo.canonicalUrl">URL chính tắc</Label>
                 <Input
                   id="seo.canonicalUrl"
@@ -4973,17 +5120,34 @@ export default function ProductDetailPage() {
                   .map((slot, index) => (
                     <div
                       key={slot}
-                      className="overflow-hidden rounded-[15px] border bg-muted/20"
+                      draggable={Boolean(galleryImages[index])}
+                      onDragStart={(e) => handleDragStart(e, index)}
+                      onDragOver={(e) => handleDragOver(e, index)}
+                      onDragLeave={handleDragLeave}
+                      onDrop={(e) => handleDrop(e, index)}
+                      onDragEnd={handleDragEnd}
+                      className={cn(
+                        "overflow-hidden rounded-[15px] border bg-muted/20 transition-all duration-200",
+                        galleryImages[index] && "cursor-grab active:cursor-grabbing",
+                        draggedOverIndex === index && "border-orange-500 bg-orange-50/50 scale-[1.02] ring-2 ring-orange-200"
+                      )}
                     >
-                      <button
-                        type="button"
+                      <div
+                        role="button"
+                        tabIndex={0}
                         aria-label={`Thêm ${slot.toLowerCase()}`}
-                        className="flex aspect-square w-full items-center justify-center overflow-hidden text-muted-foreground transition-colors hover:bg-muted"
+                        className="flex aspect-square w-full items-center justify-center overflow-hidden text-muted-foreground transition-colors hover:bg-muted focus:outline-none focus:ring-2 focus:ring-orange-200"
                         onClick={() =>
                           galleryImages[index]
                             ? openMediaPicker("gallery-replace", index)
                             : openMediaPicker("gallery-replace", index)
                         }
+                        onKeyDown={(e) => {
+                          if (e.key === "Enter" || e.key === " ") {
+                            e.preventDefault()
+                            openMediaPicker("gallery-replace", index)
+                          }
+                        }}
                       >
                         {galleryImages[index] ? (
                           // eslint-disable-next-line @next/next/no-img-element
@@ -4991,14 +5155,18 @@ export default function ProductDetailPage() {
                             src={galleryImages[index]}
                             alt=""
                             className="size-full object-contain p-1.5"
+                            draggable={false}
                           />
                         ) : (
                           <IconPhoto className="size-5" />
                         )}
                         <span className="sr-only">{`Vị trí gallery ${index + 1}`}</span>
-                      </button>
+                      </div>
                       {galleryImages[index] ? (
-                        <div className="grid grid-cols-4 gap-px border-t bg-border">
+                        <div 
+                          className="grid grid-cols-4 gap-px border-t bg-border"
+                          onDragStart={(e) => e.stopPropagation()}
+                        >
                            <Button
                             type="button"
                             variant="secondary"

@@ -44,7 +44,7 @@ export function SeoMetadataForm({
 }: SeoMetadataFormProps) {
   const [altText, setAltText] = React.useState(initialAltText)
   const [title, setTitle] = React.useState(initialTitle)
-  const [seoFilename, setSeoFilename] = React.useState(initialFileName)
+  const [seoFilename, setSeoFilename] = React.useState(initialFileName.replace(/\.[^.]+$/, ""))
   const [isManuallyEdited, setIsManuallyEdited] = React.useState(Boolean(initialFileName))
   const [validationError, setValidationError] = React.useState<string | null>(null)
   const debounceRef = React.useRef<ReturnType<typeof setTimeout> | null>(null)
@@ -53,7 +53,8 @@ export function SeoMetadataForm({
     const fallbackText = defaultMetadataText.trim() || "Duky Store"
     const resolvedAltText = altText.trim() || fallbackText
     const resolvedTitle = title.trim() || fallbackText
-    const fileName = seoFilename || generateSeoFilename(resolvedAltText, originalExtension)
+    const baseName = seoFilename.trim() || generateSeoFilename(resolvedAltText, "").replace(/\.[^.]+$/, "")
+    const fileName = `${baseName.replace(/\.[^.]+$/, "")}${originalExtension}`
 
     return {
       altText: resolvedAltText,
@@ -71,7 +72,7 @@ export function SeoMetadataForm({
 
     debounceRef.current = setTimeout(() => {
       const source = altText.trim() || title.trim()
-      setSeoFilename(source ? generateSeoFilename(source, originalExtension) : "")
+      setSeoFilename(source ? generateSeoFilename(source, "").replace(/\.[^.]+$/, "") : "")
     }, 300)
 
     return () => {
@@ -150,12 +151,16 @@ export function SeoMetadataForm({
 
       <div className="space-y-2">
         <Label htmlFor="seo-filename">Tên file SEO</Label>
-        <Input
-          id="seo-filename"
-          value={seoFilename}
-          onChange={handleFilenameChange}
-          placeholder={`media${originalExtension}`}
-        />
+        <div className="flex items-center gap-1.5">
+          <Input
+            id="seo-filename"
+            value={seoFilename}
+            onChange={handleFilenameChange}
+            placeholder="media"
+            className="flex-1"
+          />
+          <span className="text-sm font-semibold text-stone-500">{originalExtension}</span>
+        </div>
         <p className="text-xs text-stone-500">
           Preview: <span className="font-mono text-stone-700">{previewFilename}</span>
         </p>
