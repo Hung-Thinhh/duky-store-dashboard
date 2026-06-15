@@ -360,6 +360,49 @@ const normalizeVariantTerm = (value: string) =>
     .replace(/^-|-$/g, "")
     .toUpperCase()
 
+const abbreviateTermName = (name: string) => {
+  const normalized = name
+    .trim()
+    .toLowerCase()
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .replace(/đ/g, "d")
+
+  const colorMap: Record<string, string> = {
+    "den": "D",
+    "do": "DO",
+    "trang": "T",
+    "vang": "V",
+    "xanh": "X",
+    "xam": "XM",
+    "nau": "N",
+    "hong": "H",
+    "cam": "C",
+    "tim": "TI",
+    "kem": "K",
+    "reu": "R",
+    "bo": "BO",
+  }
+
+  if (colorMap[normalized]) {
+    return colorMap[normalized].toUpperCase()
+  }
+
+  if (/^\d+$/.test(normalized)) {
+    return normalized
+  }
+
+  if (normalized.includes(" ")) {
+    return normalized
+      .split(/\s+/)
+      .map((word) => word[0])
+      .join("")
+      .toUpperCase()
+  }
+
+  return normalized.substring(0, 2).toUpperCase()
+}
+
 const getTermColorValue = (term: ProductAttributeTerm) => {
   const metadata = term.metadata as
     | { hex?: string; color?: string }
@@ -2376,8 +2419,23 @@ export default function ProductDetailPage() {
     const currentSku = getValues("sku")
     // Tự sinh SKU nếu trường SKU đang trống
     if (!currentSku) {
-      const cleanSlug = nextSlug.toUpperCase().replace(/-/g, "")
-      const generatedSku = cleanSlug ? `DKS-${cleanSlug}` : ""
+      const words = productName.trim().split(/\s+/)
+      const initials = words
+        .map((word) => {
+          const clean = word
+            .trim()
+            .toLowerCase()
+            .normalize("NFD")
+            .replace(/[\u0300-\u036f]/g, "")
+            .replace(/đ/g, "d")
+            .replace(/[^a-z0-9]/g, "")
+          return clean ? clean[0].toUpperCase() : ""
+        })
+        .filter(Boolean)
+        .slice(0, 4)
+        .join("")
+      const rand = Math.floor(100 + Math.random() * 900)
+      const generatedSku = initials ? `DKS-${initials}${rand}` : ""
       setValue("sku", generatedSku, { shouldDirty: true, shouldValidate: true })
     }
   }, [productName, isNew, setValue, getValues])
@@ -2537,7 +2595,7 @@ export default function ProductDetailPage() {
           .join("|")
         const existing = currentByKey.get(key)
         const suffix = values
-          .map((value) => normalizeVariantTerm(value.termName))
+          .map((value) => abbreviateTermName(value.termName))
           .join("-")
 
         return {
