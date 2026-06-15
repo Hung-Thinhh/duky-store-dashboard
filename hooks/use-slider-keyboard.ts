@@ -12,6 +12,8 @@ interface UseSliderKeyboardOptions {
   onDuplicateLayer: () => void
   onNudgeLayer: (dx: number, dy: number) => void
   onEscape: () => void
+  onCopy?: () => void
+  onPaste?: () => void
   enabled?: boolean
 }
 
@@ -25,6 +27,8 @@ export function useSliderKeyboard({
   onDuplicateLayer,
   onNudgeLayer,
   onEscape,
+  onCopy,
+  onPaste,
   enabled = true,
 }: UseSliderKeyboardOptions) {
   React.useEffect(() => {
@@ -75,6 +79,20 @@ export function useSliderKeyboard({
         return
       }
 
+      if (isMod && e.key.toLowerCase() === "c") {
+        if (isInput) return
+        e.preventDefault()
+        onCopy?.()
+        return
+      }
+
+      if (isMod && e.key.toLowerCase() === "v") {
+        if (isInput) return
+        e.preventDefault()
+        onPaste?.()
+        return
+      }
+
       // Skip remaining shortcuts when focus is in an input
       if (isInput) return
 
@@ -111,5 +129,5 @@ export function useSliderKeyboard({
 
     document.addEventListener("keydown", handleKeyDown)
     return () => document.removeEventListener("keydown", handleKeyDown)
-  }, [enabled, onUndo, onRedo, onSave, onDeleteLayer, onDuplicateLayer, onNudgeLayer, onEscape])
+  }, [enabled, onUndo, onRedo, onSave, onDeleteLayer, onDuplicateLayer, onNudgeLayer, onEscape, onCopy, onPaste])
 }

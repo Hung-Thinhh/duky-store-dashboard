@@ -8,9 +8,10 @@ interface ZoomControlsProps {
   zoom: number
   onZoomChange: (zoom: number) => void
   onFit: () => void
+  className?: string
 }
 
-export function ZoomControls({ zoom, onZoomChange, onFit }: ZoomControlsProps) {
+export function ZoomControls({ zoom, onZoomChange, onFit, className }: ZoomControlsProps) {
   const percentage = Math.round(zoom * 100)
 
   const handleSliderChange = (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -18,7 +19,7 @@ export function ZoomControls({ zoom, onZoomChange, onFit }: ZoomControlsProps) {
   }
 
   return (
-    <div className="absolute bottom-4 left-1/2 -translate-x-1/2 flex items-center gap-2 bg-card/90 backdrop-blur-sm border rounded-full px-3 py-1.5 shadow-lg z-20">
+    <div className={className ?? "absolute bottom-4 left-1/2 -translate-x-1/2 flex items-center gap-2 bg-card/90 backdrop-blur-sm border rounded-full px-3 py-1.5 shadow-lg z-20"}>
       <Button
         size="icon"
         variant="ghost"

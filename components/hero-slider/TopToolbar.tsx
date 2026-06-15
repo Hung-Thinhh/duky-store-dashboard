@@ -2,8 +2,10 @@
 
 import * as React from "react"
 import {
+  IconArrowBack,
   IconArrowBackUp,
   IconArrowForwardUp,
+  IconCopy,
   IconDeviceDesktop,
   IconDeviceFloppy,
   IconDeviceMobile,
@@ -12,7 +14,6 @@ import {
   IconEye,
   IconPhoto,
   IconRefresh,
-  IconScissors,
   IconSettings,
   IconTrash,
   IconTypography,
@@ -25,12 +26,14 @@ import { Label } from "@/components/ui/label"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import { Separator } from "@/components/ui/separator"
 import type { SlideLayer, LayerType, ViewportMode } from "@/app/(dashboard)/hero-slider/types"
+import { ZoomControls } from "./ZoomControls"
 
 // ─── Types ────────────────────────────────────────────────────────────────
 
 type ToolbarMode = "default" | "layer"
 
 interface TopToolbarProps {
+  onBack: () => void
   mode: ToolbarMode
   viewport: ViewportMode
   onViewportChange: (v: ViewportMode) => void
@@ -39,11 +42,7 @@ interface TopToolbarProps {
   onUpdateLayer?: (updater: (l: SlideLayer) => SlideLayer) => void
   onPickMedia?: (type: "layer" | "mobile") => void
   onRemoveLayer?: () => void
-  onCrop?: () => void
-  cropMode?: boolean
-  onCropApply?: () => void
-  onCropCancel?: () => void
-  onCropReset?: () => void
+
 
   onSave: () => void
   onReload: () => void
@@ -55,6 +54,10 @@ interface TopToolbarProps {
   canUndo?: boolean
   canRedo?: boolean
   onPreview?: () => void
+  onDuplicateLayer?: () => void
+  zoom: number
+  onZoomChange: (zoom: number) => void
+  onFit: () => void
 }
 
 // ─── Helper ───────────────────────────────────────────────────────────────
@@ -124,6 +127,7 @@ function TypeSelector({
 // ─── Component ────────────────────────────────────────────────────────────
 
 export function TopToolbar({
+  onBack,
   mode,
   viewport,
   onViewportChange,
@@ -131,11 +135,7 @@ export function TopToolbar({
   onUpdateLayer,
   onPickMedia,
   onRemoveLayer,
-  onCrop,
-  cropMode,
-  onCropApply,
-  onCropCancel,
-  onCropReset,
+
   onSave,
   onReload,
   isSaving,
@@ -146,6 +146,10 @@ export function TopToolbar({
   canUndo,
   canRedo,
   onPreview,
+  onDuplicateLayer,
+  zoom,
+  onZoomChange,
+  onFit,
 }: TopToolbarProps) {
   const updateLayout = (key: string, value: string) => {
     if (!onUpdateLayer) return
@@ -156,28 +160,33 @@ export function TopToolbar({
   }
 
   return (
-    <div className="h-12 border-b bg-card flex items-center px-3 gap-2 shrink-0 overflow-x-auto">
-      {/* Crop mode: Apply / Cancel / Reset */}
-      {cropMode && (
-        <>
-          <span className="text-xs text-muted-foreground">Kéo để di chuyển · Kéo góc để resize</span>
-          <div className="flex-1" />
-          {onCropReset && (
-            <Button size="sm" variant="outline" onClick={onCropReset} className="h-7 rounded-md text-xs">
-              Reset
-            </Button>
-          )}
-          <Button size="sm" variant="outline" onClick={onCropCancel} className="h-7 rounded-md text-xs">
-            Hủy
-          </Button>
-          <Button size="sm" onClick={onCropApply} className="h-7 rounded-md text-xs">
-            ✓ Áp dụng crop
-          </Button>
-        </>
+    <div className="h-12 border-b bg-card flex items-center px-3 gap-2 shrink-0 overflow-x-auto relative">
+      <Button
+        type="button"
+        variant="outline"
+        size="icon"
+        onClick={onBack}
+        className="h-8 w-8 rounded-lg border-red-200 bg-red-50/50 hover:bg-red-100 hover:border-red-300 dark:border-red-950/20 dark:bg-red-950/20 dark:hover:bg-red-950/40 shrink-0"
+        title="Quay lại"
+      >
+        <IconArrowBack className="size-4 text-red-600 dark:text-red-400" />
+      </Button>
+
+      <Separator orientation="vertical" className="h-5 shrink-0" />
+
+      {mode === "default" && (
+        <div className="absolute left-1/2 top-1/2 -translate-y-1/2 -translate-x-1/2 z-10 hidden md:flex">
+          <ZoomControls
+            zoom={zoom}
+            onZoomChange={onZoomChange}
+            onFit={onFit}
+            className="flex items-center gap-1.5 bg-muted/40 border border-border/50 rounded-xl px-2 py-0.5"
+          />
+        </div>
       )}
 
       {/* Default mode: viewport + actions */}
-      {mode === "default" && !cropMode && (
+      {mode === "default" && (
         <>
           <div className="flex items-center rounded-md border overflow-hidden">
             {(["desktop", "tablet", "mobile"] as ViewportMode[]).map((v) => (
@@ -250,7 +259,7 @@ export function TopToolbar({
       )}
 
       {/* Layer mode: type selector + type-specific controls */}
-      {mode === "layer" && !cropMode && layer && onUpdateLayer && (
+      {mode === "layer" && layer && onUpdateLayer && (
         <>
           {/* Type selector */}
           <TypeSelector
@@ -278,7 +287,6 @@ export function TopToolbar({
                     alt: l.alt || "",
                     objectFit: l.objectFit || "contain",
                     float: l.float || { duration: 4, delay: 0, displacement: 0, direction: "down" },
-                    crop: l.crop,
                   }
                 }
 
@@ -320,17 +328,6 @@ export function TopToolbar({
                 <IconPhoto className="size-3 mr-1" />
                 {layer.src ? "Đổi ảnh" : "Chọn ảnh"}
               </Button>
-              {layer.src && (
-                <Button
-                  size="sm"
-                  variant="outline"
-                  onClick={onCrop}
-                  className="h-7 rounded-md text-xs shrink-0"
-                >
-                  <IconScissors className="size-3 mr-1" />
-                  Crop
-                </Button>
-              )}
               <Separator orientation="vertical" className="h-5" />
             </>
           )}
@@ -439,6 +436,20 @@ export function TopToolbar({
           {onOpenProperties && (
             <Button size="icon" variant="ghost" className="size-7" onClick={onOpenProperties} title="Settings" aria-label="Settings">
               <IconSettings className="size-3.5" />
+            </Button>
+          )}
+
+          {/* Duplicate */}
+          {onDuplicateLayer && (
+            <Button
+              size="sm"
+              variant="outline"
+              onClick={onDuplicateLayer}
+              className="h-7 rounded-md text-xs"
+              title="Sao chép layer (Ctrl+D)"
+            >
+              <IconCopy className="size-3 mr-1" />
+              Sao chép
             </Button>
           )}
 

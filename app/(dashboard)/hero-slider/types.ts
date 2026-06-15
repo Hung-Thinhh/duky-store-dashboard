@@ -60,6 +60,12 @@ export interface SlideLayer {
     duration: number
     delay: number
   }
+
+  // Gradient fields
+  useGradient?: boolean
+  gradientType?: "linear" | "radial"
+  gradientAngle?: number
+  gradientStops?: Array<{ id?: string; color: string; position: number }>
 }
 
 export interface CTAButton {

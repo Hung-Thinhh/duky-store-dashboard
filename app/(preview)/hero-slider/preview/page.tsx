@@ -37,6 +37,10 @@ interface SlideLayer {
   label?: string; link?: string; variant?: "primary" | "secondary"
   buttonColor?: string; textColor?: string
   entranceAnimation?: { type: string; duration: number; delay: number }
+  useGradient?: boolean
+  gradientType?: "linear" | "radial"
+  gradientAngle?: number
+  gradientStops?: Array<{ color: string; position: number }>
 }
 
 interface SlideData {
@@ -61,19 +65,19 @@ const ANIMATION_CSS = `
   to   { opacity: 1; }
 }
 @keyframes hero-entrance-slide-left {
-  from { opacity: 0; transform: translateX(-40px); }
+  from { opacity: 0; transform: translateX(calc(-1.2 * var(--slide-w, 100vw))); }
   to   { opacity: 1; transform: translateX(0); }
 }
 @keyframes hero-entrance-slide-right {
-  from { opacity: 0; transform: translateX(40px); }
+  from { opacity: 0; transform: translateX(calc(1.2 * var(--slide-w, 100vw))); }
   to   { opacity: 1; transform: translateX(0); }
 }
 @keyframes hero-entrance-slide-up {
-  from { opacity: 0; transform: translateY(40px); }
+  from { opacity: 0; transform: translateY(calc(1.2 * var(--slide-h, 100vh))); }
   to   { opacity: 1; transform: translateY(0); }
 }
 @keyframes hero-entrance-slide-down {
-  from { opacity: 0; transform: translateY(-40px); }
+  from { opacity: 0; transform: translateY(calc(-1.2 * var(--slide-h, 100vh))); }
   to   { opacity: 1; transform: translateY(0); }
 }
 @keyframes hero-float-down {
@@ -120,6 +124,25 @@ function parsePercent(v: string | number | undefined, fallback: number): number 
   if (typeof v === "number") return v
   const num = parseFloat(v)
   return isNaN(num) ? fallback : num
+}
+
+function getGradientCss(layer: SlideLayer): string | undefined {
+  if (!layer.useGradient) return undefined
+  const type = layer.gradientType ?? "linear"
+  const angle = layer.gradientAngle ?? 135
+  const stops = layer.gradientStops ?? [
+    { color: "#101114", position: 0 },
+    { color: "#70737a", position: 100 }
+  ]
+  const stopsStr = [...stops]
+    .sort((a, b) => a.position - b.position)
+    .map(s => `${s.color} ${s.position}%`)
+    .join(", ")
+
+  if (type === "radial") {
+    return `radial-gradient(circle, ${stopsStr})`
+  }
+  return `linear-gradient(${angle}deg, ${stopsStr})`
 }
 
 // ─── Layer Renderer ───────────────────────────────────────────────────────
@@ -202,6 +225,29 @@ function PreviewLayer({ layer, isActive }: { layer: SlideLayer; isActive: boolea
 
   // Render text layer
   if (layer.type === "text") {
+    const gradientCss = getGradientCss(layer)
+    const textStyle: React.CSSProperties = {
+      fontSize: `${layer.fontSize ?? 24}px`,
+      fontWeight: layer.fontWeight ?? 400,
+      fontFamily:
+        layer.fontFamily === "playfair"
+          ? "var(--font-playfair)"
+          : "var(--font-montserrat)",
+      textAlign: layer.textAlign ?? "left",
+      lineHeight: layer.lineHeight ?? 1.3,
+      letterSpacing: layer.letterSpacing ? `${layer.letterSpacing}px` : undefined,
+      textShadow: layer.textShadow || undefined,
+      margin: 0,
+    }
+    if (gradientCss) {
+      textStyle.backgroundImage = gradientCss
+      textStyle.backgroundClip = "text"
+      textStyle.WebkitBackgroundClip = "text"
+      textStyle.WebkitTextFillColor = "transparent"
+    } else {
+      textStyle.color = layer.color ?? "#101114"
+    }
+
     return (
       <div
         style={{
@@ -213,22 +259,7 @@ function PreviewLayer({ layer, isActive }: { layer: SlideLayer; isActive: boolea
         }}
       >
         <div style={floatStyle}>
-          <p
-            style={{
-              fontSize: `${layer.fontSize ?? 24}px`,
-              fontWeight: layer.fontWeight ?? 400,
-              color: layer.color ?? "#101114",
-              fontFamily:
-                layer.fontFamily === "playfair"
-                  ? "var(--font-playfair)"
-                  : "var(--font-montserrat)",
-              textAlign: layer.textAlign ?? "left",
-              lineHeight: layer.lineHeight ?? 1.3,
-              letterSpacing: layer.letterSpacing ? `${layer.letterSpacing}px` : undefined,
-              textShadow: layer.textShadow || undefined,
-              margin: 0,
-            }}
-          >
+          <p style={textStyle} className={gradientCss ? "bg-clip-text" : undefined}>
             {layer.content || ""}
           </p>
         </div>
@@ -238,25 +269,30 @@ function PreviewLayer({ layer, isActive }: { layer: SlideLayer; isActive: boolea
 
   // Render button layer
   if (layer.type === "button") {
+    const buttonGradientCss = getGradientCss(layer)
+    const btnStyle: React.CSSProperties = {
+      display: "inline-block",
+      fontWeight: 600,
+      borderRadius: 9999,
+      color: layer.textColor ?? "#ffffff",
+      fontFamily:
+        layer.fontFamily === "playfair"
+          ? "var(--font-playfair)"
+          : "var(--font-montserrat)",
+      padding: "10px 28px",
+      fontSize: "14px",
+      border: layer.variant === "secondary" ? "2px solid #101114" : "none",
+    }
+    if (buttonGradientCss) {
+      btnStyle.background = buttonGradientCss
+    } else {
+      btnStyle.background = layer.buttonColor ?? "#101114"
+    }
+
     return (
       <div style={{ ...positionStyle, ...entranceStyle, display: "flex", alignItems: "center", justifyContent: "center" }}>
         <div style={floatStyle}>
-          <span
-            style={{
-              display: "inline-block",
-              fontWeight: 600,
-              borderRadius: 9999,
-              background: layer.buttonColor ?? "#101114",
-              color: layer.textColor ?? "#ffffff",
-              fontFamily:
-                layer.fontFamily === "playfair"
-                  ? "var(--font-playfair)"
-                  : "var(--font-montserrat)",
-              padding: "10px 28px",
-              fontSize: "14px",
-              border: layer.variant === "secondary" ? "2px solid #101114" : "none",
-            }}
-          >
+          <span style={btnStyle}>
             {layer.label || "Xem thêm"}
           </span>
         </div>
@@ -289,15 +325,19 @@ function PreviewSlide({
     wasActiveRef.current = isActive
   }, [isActive])
 
+  const size = VIEWPORT_SIZES[viewport]
+
   return (
     <div
       style={{
         position: "absolute",
         inset: 0,
         opacity: isActive ? 1 : 0,
-        transition: "opacity 600ms ease",
+        transition: "opacity 1500ms ease",
         zIndex: isActive ? 1 : 0,
         background: "#ffffff",
+        ["--slide-w" as any]: `${size.width}px`,
+        ["--slide-h" as any]: `${size.height}px`,
       }}
     >
       {[...slide.layers[viewport]]
@@ -346,10 +386,12 @@ export default function HeroSliderPreviewPage() {
   const scaleY = (windowSize.height - padding) / size.height
   const scaleFactor = Math.min(scaleX, scaleY)
 
-  // Load slides from sessionStorage on first load
+  // Load slides from localStorage / sessionStorage on first load, and listen for updates
   React.useEffect(() => {
     try {
-      const stored = sessionStorage.getItem(STORAGE_KEY)
+      const storedLocal = localStorage.getItem(STORAGE_KEY)
+      const storedSession = sessionStorage.getItem(STORAGE_KEY)
+      const stored = storedLocal || storedSession
       if (stored) {
         const parsed = JSON.parse(stored)
         if (Array.isArray(parsed) && parsed.length > 0) {
@@ -361,6 +403,21 @@ export default function HeroSliderPreviewPage() {
     } finally {
       setIsLoading(false)
     }
+
+    const handleStorageChange = (e: StorageEvent) => {
+      if (e.key === STORAGE_KEY && e.newValue) {
+        try {
+          const parsed = JSON.parse(e.newValue)
+          if (Array.isArray(parsed) && parsed.length > 0) {
+            setSlides(parsed)
+          }
+        } catch {
+          // ignore
+        }
+      }
+    }
+    window.addEventListener("storage", handleStorageChange)
+    return () => window.removeEventListener("storage", handleStorageChange)
   }, [])
 
   // Autoplay
