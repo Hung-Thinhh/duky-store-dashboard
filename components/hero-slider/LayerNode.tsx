@@ -72,6 +72,8 @@ export function LayerNode({
   const onDragEndRef = React.useRef(onDragEnd)
   onDragEndRef.current = onDragEnd
 
+  const draggedRef = React.useRef(false)
+
   const left = parsePercent(layer.left, 0)
   const top = parsePercent(layer.top, 0)
   const width = parsePercent(layer.width, 50)
@@ -82,13 +84,17 @@ export function LayerNode({
   const handleMouseDown = (e: React.MouseEvent) => {
     e.stopPropagation()
     e.preventDefault()
-    onSelect(e)
+    draggedRef.current = false
+
+    const wasSelected = isSelected
+    if (!wasSelected) {
+      onSelect(e)
+    }
 
     // Don't allow drag if locked
     if (layer.locked) return
 
-    // Only start drag if this layer is already selected
-    if (!isSelected) return
+    let lockDirection: "x" | "y" | null = null
 
     dragState.current = {
       startX: e.clientX,
@@ -107,8 +113,36 @@ export function LayerNode({
 
       const dx = moveEvent.clientX - dragState.current.startX
       const dy = moveEvent.clientY - dragState.current.startY
-      const dxPercent = (dx / canvasRect.width) * 100
-      const dyPercent = (dy / canvasRect.height) * 100
+
+      if (Math.abs(dx) > 1 || Math.abs(dy) > 1) {
+        draggedRef.current = true
+      }
+
+      let dxPercent = (dx / canvasRect.width) * 100
+      let dyPercent = (dy / canvasRect.height) * 100
+
+      if (moveEvent.shiftKey) {
+        if (!lockDirection) {
+          const threshold = 5
+          if (Math.abs(dx) > threshold || Math.abs(dy) > threshold) {
+            lockDirection = Math.abs(dx) > Math.abs(dy) ? "x" : "y"
+          }
+        }
+
+        if (lockDirection === "x") {
+          dyPercent = 0
+        } else if (lockDirection === "y") {
+          dxPercent = 0
+        } else {
+          if (Math.abs(dx) > Math.abs(dy)) {
+            dyPercent = 0
+          } else {
+            dxPercent = 0
+          }
+        }
+      } else {
+        lockDirection = null
+      }
 
       onPositionChange(
         Math.round(dragState.current.startLeft + dxPercent),
@@ -116,11 +150,15 @@ export function LayerNode({
       )
     }
 
-    const handleMouseUp = () => {
+    const handleMouseUp = (upEvent: MouseEvent) => {
       dragState.current = null
       onDragEndRef.current?.()
       document.removeEventListener("mousemove", handleMouseMove)
       document.removeEventListener("mouseup", handleMouseUp)
+
+      if (!draggedRef.current && wasSelected) {
+        onSelect(upEvent as unknown as React.MouseEvent)
+      }
     }
 
     document.addEventListener("mousemove", handleMouseMove)
@@ -147,7 +185,6 @@ export function LayerNode({
       onMouseDown={handleMouseDown}
       onClick={(e) => {
         e.stopPropagation()
-        onSelect(e)
       }}
     >
       {/* Layer content — render by type */}
@@ -219,7 +256,8 @@ export function LayerNode({
               ? "var(--font-playfair)"
               : "var(--font-montserrat)",
           padding: "10px 28px",
-          fontSize: "14px",
+          fontSize: layer.fontSize ? `${layer.fontSize}px` : "14px",
+          fontWeight: layer.fontWeight ?? 600,
           border: layer.variant === "secondary" ? "2px solid #101114" : "none",
         }
         if (buttonGradientCss) {
@@ -230,7 +268,7 @@ export function LayerNode({
         return (
           <div className="w-full h-full flex items-center justify-center pointer-events-none">
             <span
-              className="inline-block font-semibold rounded-full"
+              className="inline-block rounded-full"
               style={btnStyle}
             >
               {layer.label || "Xem thêm"}

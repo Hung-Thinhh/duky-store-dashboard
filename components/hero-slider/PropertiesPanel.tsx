@@ -327,7 +327,6 @@ function TextProperties({
           <Select value={String(layer.fontWeight ?? 400)} onValueChange={(v) => onUpdate((l) => ({ ...l, fontWeight: Number(v) }))}>
             <SelectTrigger className="h-8 text-xs rounded-lg"><SelectValue /></SelectTrigger>
             <SelectContent className="rounded-xl">
-              <SelectItem value="300">Light (300)</SelectItem>
               <SelectItem value="400">Regular (400)</SelectItem>
               <SelectItem value="500">Medium (500)</SelectItem>
               <SelectItem value="600">Semi Bold (600)</SelectItem>
@@ -430,6 +429,29 @@ function ButtonProperties({
             <SelectItem value="playfair">Playfair Display (Có chân)</SelectItem>
           </SelectContent>
         </Select>
+      </div>
+      <div className="grid grid-cols-2 gap-2">
+        <div className="space-y-1">
+          <Label className="text-xs">Font Size (px)</Label>
+          <Input
+            type="number"
+            value={layer.fontSize ?? 14}
+            onChange={(e) => onUpdate((l) => ({ ...l, fontSize: Number(e.target.value) }))}
+            className="h-8 text-xs rounded-lg"
+          />
+        </div>
+        <div className="space-y-1">
+          <Label className="text-xs">Font Weight</Label>
+          <Select value={String(layer.fontWeight ?? 600)} onValueChange={(v) => onUpdate((l) => ({ ...l, fontWeight: Number(v) }))}>
+            <SelectTrigger className="h-8 text-xs rounded-lg"><SelectValue /></SelectTrigger>
+            <SelectContent className="rounded-xl">
+              <SelectItem value="400">Regular (400)</SelectItem>
+              <SelectItem value="500">Medium (500)</SelectItem>
+              <SelectItem value="600">Semi Bold (600)</SelectItem>
+              <SelectItem value="700">Bold (700)</SelectItem>
+            </SelectContent>
+          </Select>
+        </div>
       </div>
       <div className="grid grid-cols-2 gap-2">
         {!layer.useGradient && (

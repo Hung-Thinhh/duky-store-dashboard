@@ -33,6 +33,8 @@ import { ZoomControls } from "./ZoomControls"
 type ToolbarMode = "default" | "layer"
 
 interface TopToolbarProps {
+  title?: string
+  onTitleChange?: (v: string) => void
   onBack: () => void
   mode: ToolbarMode
   viewport: ViewportMode
@@ -127,6 +129,8 @@ function TypeSelector({
 // ─── Component ────────────────────────────────────────────────────────────
 
 export function TopToolbar({
+  title,
+  onTitleChange,
   onBack,
   mode,
   viewport,
@@ -172,7 +176,21 @@ export function TopToolbar({
         <IconArrowBack className="size-4 text-red-600 dark:text-red-400" />
       </Button>
 
-      <Separator orientation="vertical" className="h-5 shrink-0" />
+      {onTitleChange ? (
+        <>
+          <div className="flex items-center shrink-0">
+            <Input
+              value={title || ""}
+              onChange={(e) => onTitleChange(e.target.value)}
+              className="h-7 text-xs font-semibold px-2 py-1 bg-transparent hover:bg-muted/50 focus:bg-background border-none focus:ring-1 focus:ring-ring w-40 rounded-md transition-colors"
+              placeholder="Tên slider"
+            />
+          </div>
+          <Separator orientation="vertical" className="h-5 shrink-0" />
+        </>
+      ) : (
+        <Separator orientation="vertical" className="h-5 shrink-0" />
+      )}
 
       {mode === "default" && (
         <div className="absolute left-1/2 top-1/2 -translate-y-1/2 -translate-x-1/2 z-10 hidden md:flex">

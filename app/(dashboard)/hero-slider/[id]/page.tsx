@@ -9,9 +9,16 @@ import {
   IconPhoto,
   IconTypography,
   IconClick,
+  IconKeyboard,
 } from "@tabler/icons-react"
 
 import { MediaPickerDialog } from "@/components/media/media-picker-dialog"
+import {
+  Dialog,
+  DialogContent,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog"
 import { homepageService } from "@/lib/api/services/homepage.service"
 import { type HomepageSection } from "@/lib/api/schemas/homepage.schema"
 import { ContentStatus, HomepageSectionType } from "@/lib/api/schemas/enums"
@@ -292,6 +299,7 @@ export default function HeroSliderEditorPage() {
   const [isLoading, setIsLoading] = React.useState(true)
   const [isSaving, setIsSaving] = React.useState(false)
   const [mediaPickerOpen, setMediaPickerOpen] = React.useState(false)
+  const [shortcutsOpen, setShortcutsOpen] = React.useState(false)
   const [mediaPickerTarget, setMediaPickerTarget] = React.useState<{
     slideIndex: number
     layerIndex: number
@@ -301,7 +309,9 @@ export default function HeroSliderEditorPage() {
   const [layersPanelOpen, setLayersPanelOpen] = React.useState(false)
   const [zoomScale, setZoomScale] = React.useState(1)
   const [panOffset, setPanOffset] = React.useState({ x: 0, y: 0 })
-  const [activeGradientEditIndex, setActiveGradientEditIndex] = React.useState<number | null>(null)
+  const [activeGradientEditIndex, setActiveGradientEditIndex] = React.useState<
+    number | null
+  >(null)
 
   React.useEffect(() => {
     setActiveGradientEditIndex(null)
@@ -351,10 +361,15 @@ export default function HeroSliderEditorPage() {
 
   // ─── Dirty tracking ──────────────────────────────────────────────────
 
-  const savedSnapshotRef = React.useRef<string>("")
+  const savedSnapshotRef = React.useRef<{
+    title: string
+    slides: SlideData[]
+  } | null>(null)
   const isDirty =
-    JSON.stringify(slides) !== savedSnapshotRef.current &&
-    savedSnapshotRef.current !== ""
+    savedSnapshotRef.current !== null &&
+    ((section?.title || "") !== savedSnapshotRef.current.title ||
+      JSON.stringify(slides) !==
+        JSON.stringify(savedSnapshotRef.current.slides))
 
   React.useEffect(() => {
     if (!isDirty) return
@@ -364,6 +379,19 @@ export default function HeroSliderEditorPage() {
     window.addEventListener("beforeunload", handler)
     return () => window.removeEventListener("beforeunload", handler)
   }, [isDirty])
+
+  // Heartbeat presence pinging
+  React.useEffect(() => {
+    if (!id || id === "new") return
+
+    homepageService.sendHeartbeat(id).catch(console.error)
+
+    const interval = setInterval(() => {
+      homepageService.sendHeartbeat(id).catch(console.error)
+    }, 5000)
+
+    return () => clearInterval(interval)
+  }, [id])
 
   // ─── Load ─────────────────────────────────────────────────────────────
 
@@ -383,7 +411,10 @@ export default function HeroSliderEditorPage() {
         })
         setSection(created)
         setSlides([defaultSlide(0)])
-        savedSnapshotRef.current = JSON.stringify([defaultSlide(0)])
+        savedSnapshotRef.current = {
+          title: created.title || "Hero Slider",
+          slides: [defaultSlide(0)],
+        }
         router.replace(`/hero-slider/${created.id}`, { scroll: false })
         return
       }
@@ -400,21 +431,33 @@ export default function HeroSliderEditorPage() {
         ) {
           const loaded = metadata.slides.map(migrateOldSlide)
           setSlides(loaded)
-          savedSnapshotRef.current = JSON.stringify(loaded)
+          savedSnapshotRef.current = {
+            title: heroSection.title || "Hero Slider",
+            slides: loaded,
+          }
         } else {
           console.log("[Load] No slides in metadata, using default")
           setSlides([defaultSlide(0)])
-          savedSnapshotRef.current = JSON.stringify([defaultSlide(0)])
+          savedSnapshotRef.current = {
+            title: heroSection.title || "Hero Slider",
+            slides: [defaultSlide(0)],
+          }
         }
       } else {
         console.log("[Load] heroSection is null, using default")
         setSection(null)
         setSlides([defaultSlide(0)])
-        savedSnapshotRef.current = JSON.stringify([defaultSlide(0)])
+        savedSnapshotRef.current = {
+          title: "Hero Slider",
+          slides: [defaultSlide(0)],
+        }
       }
     } catch {
       setSlides([defaultSlide(0)])
-      savedSnapshotRef.current = JSON.stringify([defaultSlide(0)])
+      savedSnapshotRef.current = {
+        title: "Hero Slider",
+        slides: [defaultSlide(0)],
+      }
     } finally {
       setIsLoading(false)
     }
@@ -466,7 +509,7 @@ export default function HeroSliderEditorPage() {
       if (section?.id) {
         const result = await homepageService.updateSection(section.id, payload)
       }
-      savedSnapshotRef.current = JSON.stringify(slides)
+      savedSnapshotRef.current = { title: payload.title, slides }
       alert("Đã lưu hero slider!")
     } catch {
       alert("Lưu thất bại.")
@@ -617,10 +660,15 @@ export default function HeroSliderEditorPage() {
     }))
   }
 
+  const dragStartPositionsRef = React.useRef<{
+    [index: number]: { left: number; top: number }
+  }>({})
+
   const updateLayerPosition = (
     layerIndex: number,
     left: number,
-    top: number
+    top: number,
+    singleOnly?: boolean
   ) => {
     const slide = selectedSlideRef.current
     const vp = viewportRef.current
@@ -629,13 +677,19 @@ export default function HeroSliderEditorPage() {
     const draggedLayer = slide.layers[vp][layerIndex]
     if (!draggedLayer) return
 
-    const oldLeft = parseFloat(draggedLayer.left || "0")
-    const oldTop = parseFloat(draggedLayer.top || "0")
-    const dLeft = left - oldLeft
-    const dTop = top - oldTop
-
     const indices = selectedLayerIndicesRef.current
-    if (indices.includes(layerIndex)) {
+    if (indices.includes(layerIndex) && !singleOnly) {
+      const startPosDragged = dragStartPositionsRef.current[layerIndex]
+      const startLeftDragged = startPosDragged
+        ? startPosDragged.left
+        : parseFloat(draggedLayer.left || "0")
+      const startTopDragged = startPosDragged
+        ? startPosDragged.top
+        : parseFloat(draggedLayer.top || "0")
+
+      const dx = left - startLeftDragged
+      const dy = top - startTopDragged
+
       const slideIdx = selectedSlideIndexRef.current
       updateSlide(slideIdx, (s) => ({
         ...s,
@@ -643,12 +697,17 @@ export default function HeroSliderEditorPage() {
           ...s.layers,
           [vp]: s.layers[vp].map((l, i) => {
             if (indices.includes(i) && !l.locked) {
-              const lLeft = parseFloat(l.left || "0")
-              const lTop = parseFloat(l.top || "0")
+              const startPos = dragStartPositionsRef.current[i]
+              const startLeft = startPos
+                ? startPos.left
+                : parseFloat(l.left || "0")
+              const startTop = startPos
+                ? startPos.top
+                : parseFloat(l.top || "0")
               return {
                 ...l,
-                left: `${Math.round(lLeft + dLeft)}%`,
-                top: `${Math.round(lTop + dTop)}%`,
+                left: `${Math.round(startLeft + dx)}%`,
+                top: `${Math.round(startTop + dy)}%`,
               }
             }
             return l
@@ -682,6 +741,20 @@ export default function HeroSliderEditorPage() {
     const vp = viewportRef.current
     if (!slide) return
     layerHistory.saveDragSnapshot(slide.id, vp, slide.layers[vp])
+
+    const indices = selectedLayerIndicesRef.current
+    const startPositions: { [index: number]: { left: number; top: number } } =
+      {}
+    indices.forEach((idx) => {
+      const layer = slide.layers[vp][idx]
+      if (layer) {
+        startPositions[idx] = {
+          left: parseFloat(layer.left || "0"),
+          top: parseFloat(layer.top || "0"),
+        }
+      }
+    })
+    dragStartPositionsRef.current = startPositions
   }
 
   const handleDragEnd = () => {
@@ -689,6 +762,7 @@ export default function HeroSliderEditorPage() {
     const vp = viewportRef.current
     if (!slide) return
     layerHistory.pushDragEnd(slide.id, vp, slide.layers[vp])
+    dragStartPositionsRef.current = {}
   }
 
   // ─── Media Picker ─────────────────────────────────────────────────────
@@ -839,48 +913,101 @@ export default function HeroSliderEditorPage() {
     const slide = selectedSlideRef.current
     const vp = viewportRef.current
     const indices = selectedLayerIndicesRef.current
-    if (!slide || indices.length === 0) return
 
-    const layersToCopy = indices
-      .map((idx) => slide.layers[vp][idx])
-      .filter(Boolean)
+    if (slide && indices.length > 0) {
+      const layersToCopy = indices
+        .map((idx) => slide.layers[vp][idx])
+        .filter(Boolean)
 
-    setClipboard(layersToCopy)
+      setClipboard(layersToCopy)
+      try {
+        localStorage.setItem(
+          "hero-slider-layer-clipboard",
+          JSON.stringify(layersToCopy)
+        )
+        localStorage.setItem("hero-slider-last-copy-type", "layer")
+      } catch (err) {
+        console.error("Failed to save layers to localStorage", err)
+      }
+    } else if (slide) {
+      try {
+        localStorage.setItem(
+          "hero-slider-slide-clipboard",
+          JSON.stringify(slide)
+        )
+        localStorage.setItem("hero-slider-last-copy-type", "slide")
+      } catch (err) {
+        console.error("Failed to save slide to localStorage", err)
+      }
+    }
   }, [])
 
   const handlePaste = React.useCallback(() => {
-    const slide = selectedSlideRef.current
-    const slideId = selectedSlideIdRef.current
-    const slideIdx = selectedSlideIndexRef.current
-    const vp = viewportRef.current
-    if (!slide || !slideId || clipboard.length === 0) return
+    try {
+      const lastCopyType = localStorage.getItem("hero-slider-last-copy-type")
 
-    const oldLayers = slide.layers[vp]
-    const pastedLayers = clipboard.map((layer, index) => {
-      const currentLeft = parseFloat(layer.left || "0")
-      const currentTop = parseFloat(layer.top || "0")
-      const newLeft = `${Math.min(100, Math.max(0, currentLeft + 4))}%`
-      const newTop = `${Math.min(100, Math.max(0, currentTop + 4))}%`
+      if (lastCopyType === "layer") {
+        const savedLayersStr = localStorage.getItem(
+          "hero-slider-layer-clipboard"
+        )
+        if (!savedLayersStr) return
+        const parsedLayers = JSON.parse(savedLayersStr) as SlideLayer[]
+        if (parsedLayers.length === 0) return
 
-      return {
-        ...JSON.parse(JSON.stringify(layer)),
-        left: newLeft,
-        top: newTop,
-        name: `${layer.name || layer.type} (copy)`,
-        zIndex: oldLayers.length + index,
+        const slide = selectedSlideRef.current
+        const slideId = selectedSlideIdRef.current
+        const slideIdx = selectedSlideIndexRef.current
+        const vp = viewportRef.current
+        if (!slide || !slideId) return
+
+        const oldLayers = slide.layers[vp]
+        const pastedLayers = parsedLayers.map((layer, index) => {
+          const currentLeft = parseFloat(layer.left || "0")
+          const currentTop = parseFloat(layer.top || "0")
+          const newLeft = `${Math.min(100, Math.max(0, currentLeft + 4))}%`
+          const newTop = `${Math.min(100, Math.max(0, currentTop + 4))}%`
+
+          return {
+            ...JSON.parse(JSON.stringify(layer)),
+            left: newLeft,
+            top: newTop,
+            name: `${layer.name || layer.type} (copy)`,
+            zIndex: oldLayers.length + index,
+          }
+        })
+
+        const newLayers = [...oldLayers, ...pastedLayers]
+        updateSlide(slideIdx, (s) => ({
+          ...s,
+          layers: { ...s.layers, [vp]: newLayers },
+        }))
+        layerHistory.pushSnapshot(slideId, vp, oldLayers, newLayers)
+
+        const newIndices = pastedLayers.map((_, i) => oldLayers.length + i)
+        setSelectedLayerIndices(newIndices)
+      } else if (lastCopyType === "slide") {
+        const savedSlideStr = localStorage.getItem(
+          "hero-slider-slide-clipboard"
+        )
+        if (!savedSlideStr) return
+        const slideToPaste = JSON.parse(savedSlideStr) as SlideData
+
+        const newSlide: SlideData = {
+          ...slideToPaste,
+          id: `slide-${Date.now()}-${Math.random()}`,
+        }
+
+        setSlides((prev) => [...prev, newSlide])
+        setSelectedSlideIndex(slides.length)
+        setSelectedLayerIndex(null)
       }
-    })
-
-    const newLayers = [...oldLayers, ...pastedLayers]
-    updateSlide(slideIdx, (s) => ({
-      ...s,
-      layers: { ...s.layers, [vp]: newLayers },
-    }))
-    layerHistory.pushSnapshot(slideId, vp, oldLayers, newLayers)
-
-    const newIndices = pastedLayers.map((_, i) => oldLayers.length + i)
-    setSelectedLayerIndices(newIndices)
-  }, [clipboard, updateSlide, layerHistory])
+    } catch (err) {
+      console.error(
+        "Failed to parse and paste from localStorage clipboard",
+        err
+      )
+    }
+  }, [updateSlide, layerHistory, slides.length])
 
   const handleNudgeLayer = React.useCallback(
     (dx: number, dy: number) => {
@@ -938,6 +1065,10 @@ export default function HeroSliderEditorPage() {
   return (
     <div className="flex h-[calc(100vh-64px)] flex-col">
       <TopToolbar
+        title={section?.title || ""}
+        onTitleChange={(newTitle) =>
+          setSection((prev) => (prev ? { ...prev, title: newTitle } : null))
+        }
         onBack={() => {
           if (
             isDirty &&
@@ -1025,7 +1156,9 @@ export default function HeroSliderEditorPage() {
                   onZoomScaleChange={setZoomScale}
                   panOffset={panOffset}
                   onPanOffsetChange={setPanOffset}
-                  showGradientHandles={activeGradientEditIndex === selectedLayerIndex}
+                  showGradientHandles={
+                    activeGradientEditIndex === selectedLayerIndex
+                  }
                 />
                 {layersPanelOpen ? (
                   <FloatingLayersPanel
@@ -1077,6 +1210,16 @@ export default function HeroSliderEditorPage() {
                     >
                       <IconClick className="size-4 text-foreground" />
                     </Button>
+                    <div className="mx-1.5 my-0.5 h-px bg-border/60" />
+                    <Button
+                      size="icon"
+                      variant="outline"
+                      className="size-9 rounded-xl border border-border bg-background/80 shadow-lg backdrop-blur-md hover:bg-background"
+                      onClick={() => setShortcutsOpen(true)}
+                      title="Danh sách phím tắt"
+                    >
+                      <IconKeyboard className="size-4 text-foreground" />
+                    </Button>
                   </div>
                 )}
               </>
@@ -1107,7 +1250,9 @@ export default function HeroSliderEditorPage() {
               viewport={viewport}
               onUpdateLayer={updateLayer}
               onPickMedia={openMediaPicker}
-              onStartGradientEdit={() => setActiveGradientEditIndex(selectedLayerIndex)}
+              onStartGradientEdit={() =>
+                setActiveGradientEditIndex(selectedLayerIndex)
+              }
             />
           </div>
         )}
@@ -1120,6 +1265,201 @@ export default function HeroSliderEditorPage() {
         onSelect={handleMediaSelect}
         title="Chọn ảnh cho layer"
       />
+
+      {/* Keyboard Shortcuts Dialog */}
+      <Dialog open={shortcutsOpen} onOpenChange={setShortcutsOpen}>
+        <DialogContent className="max-w-md rounded-2xl p-6">
+          <DialogHeader className="pb-2">
+            <DialogTitle className="flex items-center gap-2 text-base font-semibold">
+              <IconKeyboard className="size-5 text-primary" />
+              Phím tắt hệ thống
+            </DialogTitle>
+          </DialogHeader>
+          <div className="max-h-[400px] space-y-4 overflow-y-auto pr-1">
+            <div className="space-y-2">
+              <h4 className="text-xs font-semibold tracking-wider text-muted-foreground uppercase">
+                Thao tác chung
+              </h4>
+              <div className="grid grid-cols-[120px_1fr] gap-x-3 gap-y-2 text-xs">
+                <div className="flex gap-1">
+                  <kbd className="rounded border border-border bg-muted px-1.5 py-0.5 font-mono text-[10px] shadow-sm">
+                    Ctrl
+                  </kbd>
+                  +
+                  <kbd className="rounded border border-border bg-muted px-1.5 py-0.5 font-mono text-[10px] shadow-sm">
+                    Z
+                  </kbd>
+                </div>
+                <div className="flex items-center text-muted-foreground">
+                  Hoàn tác (Undo)
+                </div>
+
+                <div className="flex gap-1">
+                  <kbd className="rounded border border-border bg-muted px-1.5 py-0.5 font-mono text-[10px] shadow-sm">
+                    Ctrl
+                  </kbd>
+                  +
+                  <kbd className="rounded border border-border bg-muted px-1.5 py-0.5 font-mono text-[10px] shadow-sm">
+                    Shift
+                  </kbd>
+                  +
+                  <kbd className="rounded border border-border bg-muted px-1.5 py-0.5 font-mono text-[10px] shadow-sm">
+                    Z
+                  </kbd>
+                </div>
+                <div className="flex items-center text-muted-foreground">
+                  Làm lại (Redo)
+                </div>
+
+                <div className="flex gap-1">
+                  <kbd className="rounded border border-border bg-muted px-1.5 py-0.5 font-mono text-[10px] shadow-sm">
+                    Ctrl
+                  </kbd>
+                  +
+                  <kbd className="rounded border border-border bg-muted px-1.5 py-0.5 font-mono text-[10px] shadow-sm">
+                    S
+                  </kbd>
+                </div>
+                <div className="flex items-center text-muted-foreground">
+                  Lưu thay đổi (Save)
+                </div>
+              </div>
+            </div>
+
+            <div className="space-y-2 border-t pt-3">
+              <h4 className="text-xs font-semibold tracking-wider text-muted-foreground uppercase">
+                Thao tác trên Layer
+              </h4>
+              <div className="grid grid-cols-[120px_1fr] gap-x-3 gap-y-2 text-xs">
+                <div className="flex gap-1">
+                  <kbd className="rounded border border-border bg-muted px-1.5 py-0.5 font-mono text-[10px] shadow-sm">
+                    Ctrl
+                  </kbd>
+                  +
+                  <kbd className="rounded border border-border bg-muted px-1.5 py-0.5 font-mono text-[10px] shadow-sm">
+                    D
+                  </kbd>
+                </div>
+                <div className="flex items-center text-muted-foreground">
+                  Nhân bản Layer (Duplicate)
+                </div>
+
+                <div className="flex gap-1">
+                  <kbd className="rounded border border-border bg-muted px-1.5 py-0.5 font-mono text-[10px] shadow-sm">
+                    Ctrl
+                  </kbd>
+                  +
+                  <kbd className="rounded border border-border bg-muted px-1.5 py-0.5 font-mono text-[10px] shadow-sm">
+                    C
+                  </kbd>
+                </div>
+                <div className="flex items-center text-muted-foreground">
+                  Sao chép Layer/Slide (Copy)
+                </div>
+
+                <div className="flex gap-1">
+                  <kbd className="rounded border border-border bg-muted px-1.5 py-0.5 font-mono text-[10px] shadow-sm">
+                    Ctrl
+                  </kbd>
+                  +
+                  <kbd className="rounded border border-border bg-muted px-1.5 py-0.5 font-mono text-[10px] shadow-sm">
+                    V
+                  </kbd>
+                </div>
+                <div className="flex items-center text-muted-foreground">
+                  Dán từ bộ nhớ đệm (Paste)
+                </div>
+
+                <div className="flex gap-1">
+                  <kbd className="rounded border border-border bg-muted px-1.5 py-0.5 font-mono text-[10px] shadow-sm">
+                    Delete
+                  </kbd>{" "}
+                  /{" "}
+                  <kbd className="rounded border border-border bg-muted px-1.5 py-0.5 font-mono text-[10px] shadow-sm">
+                    Back
+                  </kbd>
+                </div>
+                <div className="flex items-center text-muted-foreground">
+                  Xóa Layer được chọn
+                </div>
+
+                <div className="flex gap-1">
+                  <kbd className="rounded border border-border bg-muted px-1.5 py-0.5 font-mono text-[10px] shadow-sm">
+                    Esc
+                  </kbd>
+                </div>
+                <div className="flex items-center text-muted-foreground">
+                  Bỏ chọn các Layer
+                </div>
+              </div>
+            </div>
+
+            <div className="space-y-2 border-t pt-3">
+              <h4 className="text-xs font-semibold tracking-wider text-muted-foreground uppercase">
+                Căn chỉnh & Di chuyển
+              </h4>
+              <div className="grid grid-cols-[120px_1fr] gap-x-3 gap-y-2 text-xs">
+                <div className="flex gap-1">
+                  <kbd className="rounded border border-border bg-muted px-1.5 py-0.5 font-mono text-[10px] shadow-sm">
+                    ↑
+                  </kbd>
+                  <kbd className="rounded border border-border bg-muted px-1.5 py-0.5 font-mono text-[10px] shadow-sm">
+                    ↓
+                  </kbd>
+                  <kbd className="rounded border border-border bg-muted px-1.5 py-0.5 font-mono text-[10px] shadow-sm">
+                    ←
+                  </kbd>
+                  <kbd className="rounded border border-border bg-muted px-1.5 py-0.5 font-mono text-[10px] shadow-sm">
+                    →
+                  </kbd>
+                </div>
+                <div className="flex items-center text-muted-foreground">
+                  Dịch chuyển Layer 1%
+                </div>
+
+                <div className="flex gap-1">
+                  <kbd className="rounded border border-border bg-muted px-1.5 py-0.5 font-mono text-[10px] shadow-sm">
+                    Shift
+                  </kbd>
+                  +
+                  <kbd className="rounded border border-border bg-muted px-1.5 py-0.5 font-mono text-[10px] shadow-sm">
+                    Phím mũi tên
+                  </kbd>
+                </div>
+                <div className="flex items-center text-muted-foreground">
+                  Dịch chuyển nhanh Layer 10%
+                </div>
+
+                <div className="flex gap-1">
+                  <kbd className="rounded border border-border bg-muted px-1.5 py-0.5 font-mono text-[10px] shadow-sm">
+                    Ctrl
+                  </kbd>
+                  +
+                  <kbd className="rounded border border-border bg-muted px-1.5 py-0.5 font-mono text-[10px] shadow-sm">
+                    Click
+                  </kbd>
+                </div>
+                <div className="flex items-center text-muted-foreground">
+                  Chọn thêm nhiều Layer
+                </div>
+
+                <div className="flex gap-1">
+                  <kbd className="rounded border border-border bg-muted px-1.5 py-0.5 font-mono text-[10px] shadow-sm">
+                    Shift
+                  </kbd>
+                  +
+                  <kbd className="rounded border border-border bg-muted px-1.5 py-0.5 font-mono text-[10px] shadow-sm">
+                    Kéo chuột
+                  </kbd>
+                </div>
+                <div className="flex items-center text-muted-foreground">
+                  Khóa trục di chuyển ngang/dọc
+                </div>
+              </div>
+            </div>
+          </div>
+        </DialogContent>
+      </Dialog>
     </div>
   )
 }

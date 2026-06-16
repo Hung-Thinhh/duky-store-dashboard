@@ -20,7 +20,7 @@ export function middleware(request: NextRequest) {
 }
 
 // Cấu hình matcher để middleware chỉ chạy trên các trang cần thiết,
-// bỏ qua api, _next/static, _next/image, favicon.ico...
+// bỏ qua api, _next/static, _next/image, favicon.svg...
 export const config = {
-  matcher: ["/((?!api|_next/static|_next/image|favicon.ico).*)"],
+  matcher: ["/((?!api|_next/static|_next/image|favicon.svg).*)"],
 }

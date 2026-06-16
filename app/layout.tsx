@@ -14,15 +14,14 @@ const fontMono = Geist_Mono({
 
 const montserrat = Montserrat({
   subsets: ["latin", "vietnamese"],
-  weight: ["300", "400", "500", "600", "700", "800", "900"],
+  weight: ["400", "500", "600", "700"],
   variable: "--font-montserrat",
   display: "swap",
 })
 
 const playfair = Playfair_Display({
   subsets: ["latin", "vietnamese"],
-  weight: ["400", "500", "600", "700", "800", "900"],
-  style: ["normal", "italic"],
+  weight: ["400", "600", "700"],
   variable: "--font-playfair",
   display: "swap",
 })
