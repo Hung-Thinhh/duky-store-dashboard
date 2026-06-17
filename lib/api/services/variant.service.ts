@@ -33,6 +33,11 @@ export const variantService = {
     return ProductVariantDetailResponseSchema.parse(response).DT
   },
 
+  async quickUpdateVariant(id: string, data: { price?: number; salePrice?: number | null; quantity?: number; note?: string }) {
+    const response = await apiClient.patch(`/admin/product-variants/${id}/quick-update`, data)
+    return ProductVariantDetailResponseSchema.parse(response).DT
+  },
+
   async deleteVariant(id: string) {
     return apiClient.delete(`/admin/product-variants/${id}`)
   },

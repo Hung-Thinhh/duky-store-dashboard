@@ -1,7 +1,7 @@
 "use client"
 
 import * as React from "react"
-import { IconLoader2, IconPlus, IconSearch, IconSettings, IconTrash } from "@tabler/icons-react"
+import { IconLoader2, IconPlus, IconSearch, IconSettings, IconTrash, IconX } from "@tabler/icons-react"
 import { Button } from "@/components/ui/button"
 import {
   Dialog,
@@ -31,6 +31,8 @@ export default function VariantsPage() {
   const [searchQuery, setSearchQuery] = React.useState("")
   const [form, setForm] = React.useState({ name: "", slug: "", type: "OTHER", sortBy: "custom", swatch: "default" })
   const [termName, setTermName] = React.useState("")
+  const [deleteTermTarget, setDeleteTermTarget] = React.useState<{ id: string; name: string } | null>(null)
+  const [toast, setToast] = React.useState<{ message: string; tone: "success" | "error" | "info" } | null>(null)
 
   const fetchAttributes = React.useCallback(async () => {
     try {
@@ -50,6 +52,13 @@ export default function VariantsPage() {
     const timer = window.setTimeout(fetchAttributes, 250)
     return () => window.clearTimeout(timer)
   }, [fetchAttributes])
+
+  React.useEffect(() => {
+    if (toast) {
+      const timer = window.setTimeout(() => setToast(null), 3000)
+      return () => window.clearTimeout(timer)
+    }
+  }, [toast])
 
   const resetForm = () => {
     setSelectedAttribute(null)
@@ -111,6 +120,26 @@ export default function VariantsPage() {
       fetchAttributes()
     } catch (error) {
       console.error("Failed to create attribute term", error)
+    } finally {
+      setIsSaving(false)
+    }
+  }
+
+  const handleDeleteTerm = (termId: string, name: string) => {
+    setDeleteTermTarget({ id: termId, name })
+  }
+
+  const handleConfirmDeleteTerm = async () => {
+    if (!deleteTermTarget) return
+    try {
+      setIsSaving(true)
+      await productAttributeService.deleteTerm(deleteTermTarget.id)
+      setToast({ message: `Đã xóa giá trị thuộc tính "${deleteTermTarget.name}" thành công`, tone: "success" })
+      setDeleteTermTarget(null)
+      await fetchAttributes()
+    } catch (error) {
+      console.error("Failed to delete attribute term", error)
+      setToast({ message: `Lỗi khi xóa giá trị thuộc tính: ${(error as any)?.message || "Không xác định"}`, tone: "error" })
     } finally {
       setIsSaving(false)
     }
@@ -206,7 +235,20 @@ export default function VariantsPage() {
             </div>
             <div className="mt-3 flex flex-wrap gap-2">
               {selectedAttribute.terms.map((term) => (
-                <span key={term.id} className="rounded-full border bg-white px-3 py-1 text-sm">{term.name}</span>
+                <span
+                  key={term.id}
+                  className="inline-flex items-center gap-1 rounded-full border bg-white pl-3 pr-1.5 py-1 text-sm text-foreground transition-all hover:bg-muted/30"
+                >
+                  <span>{term.name}</span>
+                  <button
+                    type="button"
+                    onClick={() => handleDeleteTerm(term.id, term.name)}
+                    className="flex size-4 items-center justify-center rounded-full text-muted-foreground hover:text-destructive focus:outline-none transition-all"
+                    title={`Xóa ${term.name}`}
+                  >
+                    <IconX className="size-3" />
+                  </button>
+                </span>
               ))}
             </div>
           </div>
@@ -284,6 +326,46 @@ export default function VariantsPage() {
         </DialogFooter>
       </DialogContent>
     </Dialog>
+    <Dialog open={!!deleteTermTarget} onOpenChange={(open) => !open && setDeleteTermTarget(null)}>
+      <DialogContent className="max-w-md">
+        <DialogHeader>
+          <DialogTitle>Xóa giá trị thuộc tính?</DialogTitle>
+          <DialogDescription>
+            Bạn có chắc chắn muốn xóa giá trị "{deleteTermTarget?.name}" này không?
+            Hành động này chỉ ẩn giá trị khỏi danh sách chọn khi tạo sản phẩm mới, không ảnh hưởng đến các sản phẩm cũ đã có biến thể này.
+          </DialogDescription>
+        </DialogHeader>
+        <DialogFooter>
+          <Button type="button" variant="outline" className="rounded-xl" onClick={() => setDeleteTermTarget(null)} disabled={isSaving}>
+            Hủy
+          </Button>
+          <Button type="button" variant="destructive" className="rounded-xl" onClick={handleConfirmDeleteTerm} disabled={isSaving}>
+            {isSaving && <IconLoader2 className="mr-2 size-4 animate-spin" />}
+            Xóa giá trị
+          </Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
+
+    {toast && (
+      <div
+        className={`fixed bottom-4 right-4 z-50 flex items-center gap-3 rounded-xl border p-4 shadow-lg animate-in slide-in-from-bottom-5 duration-300 min-w-[300px] ${
+          toast.tone === "success"
+            ? "border-success/20 bg-success-soft text-success"
+            : toast.tone === "error"
+            ? "border-danger/20 bg-danger-soft text-danger"
+            : "border-info/20 bg-info-soft text-info"
+        }`}
+      >
+        <div className="flex-1 text-sm font-medium">{toast.message}</div>
+        <button
+          onClick={() => setToast(null)}
+          className="text-muted-foreground hover:text-foreground text-xs font-semibold"
+        >
+          Đóng
+        </button>
+      </div>
+    )}
     </>
   )
 }

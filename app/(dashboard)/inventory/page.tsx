@@ -1,11 +1,8 @@
 "use client"
 
 import * as React from "react"
-import { Controller, useForm } from "react-hook-form"
-import { zodResolver } from "@hookform/resolvers/zod"
+import Link from "next/link"
 import {
-  IconAdjustments,
-  IconAlertCircle,
   IconAlertTriangle,
   IconArchive,
   IconArrowsExchange,
@@ -13,46 +10,13 @@ import {
   IconCategory,
   IconChartBar,
   IconCircleCheck,
-  IconDeviceFloppy,
-  IconDotsVertical,
-  IconLoader2,
   IconPackage,
-  IconSearch,
 } from "@tabler/icons-react"
 
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import {
-  DropdownMenu,
-  DropdownMenuContent,
-  DropdownMenuItem,
-  DropdownMenuTrigger,
-} from "@/components/ui/dropdown-menu"
-import { Input } from "@/components/ui/input"
-import { Label } from "@/components/ui/label"
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
-import {
-  Sheet,
-  SheetContent,
-  SheetDescription,
-  SheetFooter,
-  SheetHeader,
-  SheetTitle,
-} from "@/components/ui/sheet"
-import {
-  Table,
-  TableBody,
-  TableCell,
-  TableHead,
-  TableHeader,
-  TableRow,
-} from "@/components/ui/table"
-import { Textarea } from "@/components/ui/textarea"
-import {
-  AdjustInventoryPayload,
-  AdjustInventoryPayloadSchema,
-  Inventory,
   InventoryAnalytics,
 } from "@/lib/api/schemas/inventory.schema"
 import { inventoryService } from "@/lib/api/services/inventory.service"
@@ -63,21 +27,8 @@ const formatShortDate = (value: string) =>
   new Date(value).toLocaleDateString("vi-VN", { day: "2-digit", month: "2-digit" })
 
 export default function InventoryPage() {
-  const [inventories, setInventories] = React.useState<Inventory[]>([])
   const [analytics, setAnalytics] = React.useState<InventoryAnalytics | null>(null)
-  const [isLoading, setIsLoading] = React.useState(true)
   const [isAnalyticsLoading, setIsAnalyticsLoading] = React.useState(true)
-  const [searchQuery, setSearchQuery] = React.useState("")
-  const [currentPage, setCurrentPage] = React.useState(1)
-  const [pagination, setPagination] = React.useState({ page: 1, limit: 20, total: 0, totalPages: 1 })
-  const [isSheetOpen, setIsSheetOpen] = React.useState(false)
-  const [selectedInventory, setSelectedInventory] = React.useState<Inventory | null>(null)
-  const [isSaving, setIsSaving] = React.useState(false)
-
-  const { register, handleSubmit, control, reset, formState: { errors } } = useForm<AdjustInventoryPayload>({
-    resolver: zodResolver(AdjustInventoryPayloadSchema),
-    defaultValues: { quantityChange: 0, changeType: "IMPORT", note: "" },
-  })
 
   const fetchAnalytics = React.useCallback(async () => {
     try {
@@ -92,58 +43,9 @@ export default function InventoryPage() {
     }
   }, [])
 
-  const fetchInventories = React.useCallback(async () => {
-    try {
-      setIsLoading(true)
-      const data = await inventoryService.getInventories({
-        page: currentPage,
-        limit: pagination.limit,
-        search: searchQuery.trim() || undefined,
-      })
-      setInventories(data.data)
-      setPagination(data.pagination!)
-    } catch (error) {
-      console.error("Failed to fetch inventory", error)
-      setInventories([])
-      setPagination((previous) => ({ ...previous, page: currentPage, total: 0, totalPages: 1 }))
-    } finally {
-      setIsLoading(false)
-    }
-  }, [currentPage, pagination.limit, searchQuery])
-
   React.useEffect(() => {
     fetchAnalytics()
   }, [fetchAnalytics])
-
-  React.useEffect(() => {
-    fetchInventories()
-  }, [fetchInventories])
-
-  const handleOpenSheet = (inventory: Inventory) => {
-    setSelectedInventory(inventory)
-    reset({ quantityChange: 0, changeType: "IMPORT", note: "" })
-    setIsSheetOpen(true)
-  }
-
-  const onSubmit = async (data: AdjustInventoryPayload) => {
-    if (!selectedInventory) return
-    try {
-      setIsSaving(true)
-      await inventoryService.adjustInventory(selectedInventory.id, data)
-      setIsSheetOpen(false)
-      await Promise.all([fetchInventories(), fetchAnalytics()])
-    } catch (error) {
-      console.error("Failed to adjust inventory", error)
-    } finally {
-      setIsSaving(false)
-    }
-  }
-
-  const getStatusInfo = (stock: number, threshold: number) => {
-    if (stock <= 0) return { color: "bg-danger-soft text-danger", label: "Hết hàng" }
-    if (stock <= threshold) return { color: "bg-warning-soft text-warning", label: "Sắp hết" }
-    return { color: "bg-success-soft text-success", label: "Còn hàng" }
-  }
 
   const summary = analytics?.summary
   const maxMovement = Math.max(
@@ -172,109 +74,112 @@ export default function InventoryPage() {
         </div>
       </div>
 
+      <div className="flex gap-2 border-b border-border/60 pb-px">
+        <Link
+          href="/inventory"
+          className="border-b-2 border-primary px-4 py-2 text-sm font-semibold text-primary"
+        >
+          Tổng quan tồn kho
+        </Link>
+        <Link
+          href="/inventory/details"
+          className="border-b-2 border-transparent px-4 py-2 text-sm font-medium text-muted-foreground hover:text-foreground"
+        >
+          Chi tiết tồn kho (Sửa nhanh)
+        </Link>
+      </div>
+
       <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-4">
         <InventoryMetric
           title="Tổng SKU theo dõi"
           value={summary ? formatNumber(summary.totalSkus) : "--"}
-          description={`${formatNumber(pagination.total)} dòng trong danh sách`}
+          description="Các phân loại hàng khác nhau"
           icon={IconPackage}
           tone="accent"
           loading={isAnalyticsLoading}
         />
         <InventoryMetric
-          title="Tổng tồn thực tế"
+          title="Tổng lượng tồn"
           value={summary ? formatNumber(summary.totalQuantity) : "--"}
-          description={`${summary ? formatNumber(summary.availableQuantity) : "--"} khả dụng`}
+          description={`Có sẵn: ${summary ? formatNumber(summary.availableQuantity) : "--"} · Đang giữ: ${summary ? formatNumber(summary.reservedQuantity) : "--"}`}
           icon={IconBox}
           tone="info"
           loading={isAnalyticsLoading}
         />
         <InventoryMetric
-          title="Sắp hết hàng"
+          title="SKU sắp hết"
           value={summary ? formatNumber(summary.lowStockCount) : "--"}
-          description="Cần lên kế hoạch nhập"
+          description="Cần bổ sung sớm nhất"
           icon={IconAlertTriangle}
           tone="warning"
           loading={isAnalyticsLoading}
         />
         <InventoryMetric
-          title="Hết hàng"
-          value={summary ? formatNumber(summary.soldOutCount) : "--"}
-          description={`${summary ? summary.stockHealthRate : 0}% SKU còn ổn`}
-          icon={IconAlertCircle}
+          title="Sức khỏe tồn kho"
+          value={summary ? `${summary.stockHealthRate}%` : "--"}
+          description={`Ổn: ${summary ? formatNumber(summary.healthyCount) : "--"} · Hết: ${summary ? formatNumber(summary.soldOutCount) : "--"}`}
+          icon={IconCircleCheck}
           tone="danger"
           loading={isAnalyticsLoading}
         />
       </div>
 
-      <div className="grid grid-cols-1 gap-6 lg:grid-cols-5">
-        <Card className="border-border/60 shadow-none lg:col-span-3">
-          <CardHeader className="pb-2">
-            <div className="flex items-center justify-between">
-              <CardTitle className="text-base font-semibold">Sức khỏe tồn kho</CardTitle>
-              <Badge variant="secondary" className="rounded-md border-0 bg-accent-soft text-primary">
-                {summary ? `${summary.stockHealthRate}% ổn định` : "Đang tải"}
-              </Badge>
-            </div>
+      <div className="grid grid-cols-1 gap-6 lg:grid-cols-3">
+        <Card className="col-span-2 border-border/60 shadow-none">
+          <CardHeader>
+            <CardTitle className="text-base font-semibold">Biến động nhập/xuất kho (14 ngày)</CardTitle>
           </CardHeader>
-          <CardContent className="space-y-5 pt-2">
-            <div className="grid grid-cols-3 gap-3">
-              {(analytics?.stockHealth ?? []).map((item) => {
-                const total = Math.max(summary?.totalSkus ?? 1, 1)
+          <CardContent className="h-64">
+            <div className="flex h-full items-end gap-2 pt-4">
+              {isAnalyticsLoading ? (
+                <div className="flex h-full w-full items-center justify-center text-sm text-muted-foreground">
+                  Đang tải dữ liệu...
+                </div>
+              ) : (analytics?.movements ?? []).map((movement) => {
+                const total = movement.import + movement.export
+                const importHeight = total > 0 ? (movement.import / maxMovement) * 100 : 0
+                const exportHeight = total > 0 ? (movement.export / maxMovement) * 100 : 0
                 return (
-                  <div key={item.label} className="rounded-xl border border-border/60 bg-secondary/30 p-4">
-                    <div className="text-2xl font-semibold tracking-tight text-foreground">
-                      {formatNumber(item.value)}
-                    </div>
-                    <div className="mt-1 text-xs text-muted-foreground">{item.label}</div>
-                    <div className="mt-3 h-1.5 overflow-hidden rounded-full bg-muted">
+                  <div key={movement.date} className="group relative flex h-full flex-1 flex-col justify-end gap-1">
+                    <div className="flex h-full items-end gap-0.5">
                       <div
-                        className="h-full rounded-full"
-                        style={{ width: `${Math.round((item.value / total) * 100)}%`, backgroundColor: item.color }}
+                        className="w-full rounded-t-sm bg-success/80 transition-all group-hover:bg-success"
+                        style={{ height: `${importHeight}%` }}
                       />
+                      <div
+                        className="w-full rounded-t-sm bg-danger/80 transition-all group-hover:bg-danger"
+                        style={{ height: `${exportHeight}%` }}
+                      />
+                    </div>
+                    <span className="mt-1 text-[10px] text-muted-foreground text-center">
+                      {formatShortDate(movement.date)}
+                    </span>
+                    <div className="absolute bottom-full left-1/2 z-10 mb-2 w-32 -translate-x-1/2 rounded-lg border bg-popover p-2 text-[11px] shadow-md opacity-0 transition-opacity group-hover:opacity-100 pointer-events-none">
+                      <div className="font-semibold text-foreground">{movement.date}</div>
+                      <div className="mt-1 flex items-center justify-between text-success">
+                        <span>Nhập:</span>
+                        <span className="font-medium">+{formatNumber(movement.import)}</span>
+                      </div>
+                      <div className="flex items-center justify-between text-danger">
+                        <span>Xuất:</span>
+                        <span className="font-medium">-{formatNumber(movement.export)}</span>
+                      </div>
                     </div>
                   </div>
                 )
               })}
-              {!analytics && [1, 2, 3].map((item) => (
-                <div key={item} className="h-24 rounded-xl border border-border/60 bg-secondary/30" />
-              ))}
-            </div>
-            <div className="space-y-3">
-              <div className="flex items-center justify-between text-sm">
-                <span className="font-medium text-foreground">Luồng nhập / xuất 14 ngày</span>
-                <span className="text-xs text-muted-foreground">Cam: nhập, xanh: xuất</span>
-              </div>
-              <div className="flex h-36 items-end gap-2 rounded-xl border border-border/60 bg-card px-4 py-3">
-                {(analytics?.movements ?? []).map((movement) => {
-                  const importHeight = Math.max(4, Math.round((movement.import / maxMovement) * 100))
-                  const exportHeight = Math.max(4, Math.round((movement.export / maxMovement) * 100))
-                  return (
-                    <div key={movement.date} className="flex min-w-0 flex-1 flex-col items-center gap-2">
-                      <div className="flex h-24 w-full items-end justify-center gap-1">
-                        <div className="w-2 rounded-t bg-primary/80" style={{ height: `${importHeight}%` }} />
-                        <div className="w-2 rounded-t bg-info/80" style={{ height: `${exportHeight}%` }} />
-                      </div>
-                      <span className="truncate text-[10px] text-muted-foreground">{formatShortDate(movement.date)}</span>
-                    </div>
-                  )
-                })}
-              </div>
             </div>
           </CardContent>
         </Card>
 
-        <Card className="border-border/60 shadow-none lg:col-span-2">
-          <CardHeader className="pb-2">
-            <div className="flex items-center justify-between">
-              <CardTitle className="text-base font-semibold">Cần xử lý ngay</CardTitle>
-              <Badge variant="secondary" className="rounded-md border-0 bg-danger-soft text-danger">
-                {analytics?.topLowStock.length ?? 0}
-              </Badge>
-            </div>
+        <Card className="border-border/60 shadow-none">
+          <CardHeader>
+            <CardTitle className="text-base font-semibold">Công việc khẩn cấp</CardTitle>
           </CardHeader>
-          <CardContent className="space-y-3 pt-2">
-            {(analytics?.topLowStock ?? []).slice(0, 5).map((item) => {
+          <CardContent className="space-y-3">
+            {isAnalyticsLoading ? (
+              <div className="py-8 text-center text-sm text-muted-foreground">Đang tải cảnh báo...</div>
+            ) : analytics?.topLowStock.slice(0, 3).map((item) => {
               const critical = item.quantity <= 0
               return (
                 <div
@@ -299,229 +204,9 @@ export default function InventoryPage() {
                 </div>
               )
             })}
-            {analytics?.topLowStock.length === 0 && (
-              <div className="rounded-xl border border-border/60 bg-success-soft/40 p-4 text-sm text-success">
-                Tồn kho đang ổn, chưa có SKU cần cảnh báo.
-              </div>
-            )}
           </CardContent>
         </Card>
       </div>
-
-      <div className="grid grid-cols-1 gap-6 lg:grid-cols-3">
-        <InventoryBreakdown
-          title="Tồn kho theo danh mục"
-          icon={IconCategory}
-          items={analytics?.categories ?? []}
-        />
-        <InventoryBreakdown
-          title="Tồn kho theo thương hiệu"
-          icon={IconChartBar}
-          items={analytics?.brands ?? []}
-        />
-        <Card className="border-border/60 shadow-none">
-          <CardHeader className="pb-2">
-            <CardTitle className="text-base font-semibold">Top tồn cao</CardTitle>
-          </CardHeader>
-          <CardContent className="space-y-3 pt-2">
-            {(analytics?.topHighStock ?? []).slice(0, 5).map((item) => (
-              <div key={item.id} className="flex items-center justify-between gap-3 rounded-xl border border-border/60 p-3">
-                <div className="min-w-0">
-                  <div className="truncate text-sm font-medium text-foreground">{item.productName}</div>
-                  <div className="truncate text-xs text-muted-foreground">{item.variantName || item.sku || "Sản phẩm đơn"}</div>
-                </div>
-                <Badge variant="secondary" className="rounded-md border-0 bg-success-soft text-success">
-                  {formatNumber(item.quantity)}
-                </Badge>
-              </div>
-            ))}
-          </CardContent>
-        </Card>
-      </div>
-
-      <Card className="border-border/60 shadow-none">
-        <CardHeader className="gap-4 pb-4 md:flex-row md:items-center md:justify-between">
-          <div>
-            <CardTitle className="text-base font-semibold">Chi tiết tồn kho</CardTitle>
-            <p className="mt-1 text-sm text-muted-foreground">Bảng thao tác theo từng sản phẩm hoặc biến thể.</p>
-          </div>
-          <div className="relative w-full md:w-[350px]">
-            <IconSearch className="absolute left-3 top-1/2 size-4 -translate-y-1/2 text-muted-foreground" />
-            <Input
-              placeholder="Tìm tên, SKU..."
-              className="rounded-xl pl-9"
-              value={searchQuery}
-              onChange={(event) => {
-                setSearchQuery(event.target.value)
-                setCurrentPage(1)
-              }}
-            />
-          </div>
-        </CardHeader>
-        <CardContent className="p-0">
-          <div className="overflow-hidden border-t">
-            <Table>
-              <TableHeader className="bg-muted/30">
-                <TableRow className="hover:bg-transparent">
-                  <TableHead className="h-12 w-[330px]">Sản phẩm / Biến thể</TableHead>
-                  <TableHead className="h-12">SKU</TableHead>
-                  <TableHead className="h-12 text-center">Tồn kho</TableHead>
-                  <TableHead className="h-12 text-center">Đang giữ</TableHead>
-                  <TableHead className="h-12 text-center">Khả dụng</TableHead>
-                  <TableHead className="h-12 text-center">Ngưỡng</TableHead>
-                  <TableHead className="h-12">Trạng thái</TableHead>
-                  <TableHead className="h-12">Cập nhật cuối</TableHead>
-                  <TableHead className="h-12 text-right">Thao tác</TableHead>
-                </TableRow>
-              </TableHeader>
-              <TableBody>
-                {isLoading ? (
-                  <TableRow>
-                    <TableCell colSpan={9} className="h-32 text-center text-muted-foreground">
-                      Đang tải dữ liệu...
-                    </TableCell>
-                  </TableRow>
-                ) : inventories.length === 0 ? (
-                  <TableRow>
-                    <TableCell colSpan={9} className="h-32 text-center text-muted-foreground">
-                      Không tìm thấy dữ liệu tồn kho.
-                    </TableCell>
-                  </TableRow>
-                ) : inventories.map((inventory) => {
-                  const status = getStatusInfo(inventory.stock, inventory.threshold)
-                  const available = inventory.availableQuantity ?? inventory.stock - inventory.reservedQuantity
-                  return (
-                    <TableRow key={inventory.id} className="transition-colors hover:bg-muted/50">
-                      <TableCell>
-                        <div className="flex flex-col">
-                          <span className="font-medium text-primary">{inventory.productName}</span>
-                          {inventory.variantName && <span className="text-xs text-muted-foreground">{inventory.variantName}</span>}
-                        </div>
-                      </TableCell>
-                      <TableCell className="font-mono text-sm">{inventory.sku || "N/A"}</TableCell>
-                      <TableCell className="text-center text-lg font-bold">
-                        <span className={inventory.stock <= inventory.threshold ? "text-destructive" : ""}>{formatNumber(inventory.stock)}</span>
-                      </TableCell>
-                      <TableCell className="text-center text-muted-foreground">{formatNumber(inventory.reservedQuantity)}</TableCell>
-                      <TableCell className="text-center font-medium text-foreground">{formatNumber(available)}</TableCell>
-                      <TableCell className="text-center text-muted-foreground">{formatNumber(inventory.threshold)}</TableCell>
-                      <TableCell>
-                        <Badge variant="secondary" className={`${status.color} rounded-md border-transparent`}>
-                          {inventory.stock <= inventory.threshold && <IconAlertCircle className="mr-1 size-3" />}
-                          {status.label}
-                        </Badge>
-                      </TableCell>
-                      <TableCell className="text-sm text-muted-foreground">
-                        {inventory.updatedAt ? new Date(inventory.updatedAt).toLocaleDateString("vi-VN") : "N/A"}
-                      </TableCell>
-                      <TableCell className="text-right">
-                        <DropdownMenu>
-                          <DropdownMenuTrigger asChild>
-                            <Button variant="ghost" size="icon" className="size-8 rounded-lg">
-                              <IconDotsVertical className="size-4" />
-                            </Button>
-                          </DropdownMenuTrigger>
-                          <DropdownMenuContent align="end" className="w-40 rounded-xl">
-                            <DropdownMenuItem onClick={() => handleOpenSheet(inventory)} className="cursor-pointer rounded-lg">
-                              <IconAdjustments className="mr-2 size-4" /> Điều chỉnh
-                            </DropdownMenuItem>
-                          </DropdownMenuContent>
-                        </DropdownMenu>
-                      </TableCell>
-                    </TableRow>
-                  )
-                })}
-              </TableBody>
-            </Table>
-          </div>
-
-          <div className="flex flex-col gap-3 border-t px-4 py-3 text-sm text-muted-foreground md:flex-row md:items-center md:justify-between">
-            <div>
-              Hiển thị trang <span className="font-medium text-foreground">{pagination.page}</span> /{" "}
-              <span className="font-medium text-foreground">{pagination.totalPages || 1}</span>{" "}
-              ({formatNumber(pagination.total)} dòng tồn kho)
-            </div>
-            <div className="flex items-center gap-2">
-              <Button
-                type="button"
-                variant="outline"
-                size="sm"
-                className="rounded-lg"
-                disabled={isLoading || currentPage <= 1}
-                onClick={() => setCurrentPage((page) => Math.max(1, page - 1))}
-              >
-                Trước
-              </Button>
-              <Button
-                type="button"
-                variant="outline"
-                size="sm"
-                className="rounded-lg"
-                disabled={isLoading || currentPage >= pagination.totalPages}
-                onClick={() => setCurrentPage((page) => Math.min(pagination.totalPages || 1, page + 1))}
-              >
-                Sau
-              </Button>
-            </div>
-          </div>
-        </CardContent>
-      </Card>
-
-      <Sheet open={isSheetOpen} onOpenChange={setIsSheetOpen}>
-        <SheetContent className="flex w-full flex-col p-0 sm:max-w-[400px]">
-          {selectedInventory && (
-            <form onSubmit={handleSubmit(onSubmit)} className="flex h-full flex-col">
-              <SheetHeader className="border-b p-6 pb-4">
-                <SheetTitle>Điều chỉnh tồn kho</SheetTitle>
-                <SheetDescription>
-                  Sản phẩm: {selectedInventory.productName} {selectedInventory.variantName ? `(${selectedInventory.variantName})` : ""}
-                  <br />
-                  SKU: {selectedInventory.sku || "N/A"}
-                  <br />
-                  Tồn kho hiện tại: <strong className="text-foreground">{formatNumber(selectedInventory.stock)}</strong>
-                </SheetDescription>
-              </SheetHeader>
-              <div className="flex flex-1 flex-col gap-5 p-6">
-                <div className="space-y-2">
-                  <Label>Loại điều chỉnh</Label>
-                  <Controller
-                    name="changeType"
-                    control={control}
-                    render={({ field }) => (
-                      <Select onValueChange={field.onChange} defaultValue={field.value}>
-                        <SelectTrigger className="rounded-xl">
-                          <SelectValue placeholder="Chọn loại" />
-                        </SelectTrigger>
-                        <SelectContent className="rounded-xl">
-                          <SelectItem value="IMPORT">Nhập thêm</SelectItem>
-                          <SelectItem value="ADJUST">Kiểm kê</SelectItem>
-                          <SelectItem value="RETURN_RESTORE">Khách trả hàng</SelectItem>
-                        </SelectContent>
-                      </Select>
-                    )}
-                  />
-                </div>
-                <div className="space-y-2">
-                  <Label htmlFor="quantityChange">Số lượng thay đổi (+/-) *</Label>
-                  <Input id="quantityChange" type="number" {...register("quantityChange", { valueAsNumber: true })} className="rounded-xl" />
-                  {errors.quantityChange && <p className="text-xs text-destructive">{errors.quantityChange.message as string}</p>}
-                </div>
-                <div className="space-y-2">
-                  <Label htmlFor="note">Ghi chú</Label>
-                  <Textarea id="note" {...register("note")} className="min-h-[100px] rounded-xl" placeholder="Lý do điều chỉnh..." />
-                </div>
-              </div>
-              <SheetFooter className="border-t p-6">
-                <Button type="button" variant="outline" onClick={() => setIsSheetOpen(false)} className="w-full rounded-xl">Hủy</Button>
-                <Button type="submit" disabled={isSaving} className="w-full rounded-xl">
-                  {isSaving ? <IconLoader2 className="mr-2 size-4 animate-spin" /> : <IconDeviceFloppy className="mr-2 size-4" />}
-                  Lưu
-                </Button>
-              </SheetFooter>
-            </form>
-          )}
-        </SheetContent>
-      </Sheet>
     </div>
   )
 }
@@ -567,7 +252,7 @@ function InventoryMetric({
         <div className="mt-3 flex items-center gap-1.5">
           <div className={`flex items-center gap-0.5 rounded-md px-1.5 py-0.5 text-xs font-medium ${colors.bg} ${colors.text}`}>
             <IconCircleCheck className="size-3.5" strokeWidth={2} />
-            D? li?u th?t
+            Dữ liệu thật
           </div>
           <span className="text-xs text-muted-foreground">{description}</span>
         </div>
