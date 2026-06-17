@@ -50,4 +50,18 @@ export const homepageService = {
     const response = await apiClient.delete(`/admin/homepage/items/${itemId}`);
     return response;
   },
+
+  // Active editors presence tracking
+  async sendHeartbeat(id: string) {
+    const response = await apiClient.post(`/admin/homepage/sections/${id}/heartbeat`);
+    return response;
+  },
+
+  async getActiveEditors() {
+    const response = await apiClient.get("/admin/homepage/active-editors");
+    return response.DT as Record<
+      string,
+      Array<{ id: string; fullName: string; email: string }>
+    >;
+  },
 };

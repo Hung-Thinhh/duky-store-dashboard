@@ -18,6 +18,7 @@ import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
+import { Separator } from "@/components/ui/separator"
 import { Textarea } from "@/components/ui/textarea"
 import { homepageService } from "@/lib/api/services/homepage.service"
 import { type HomepageSection } from "@/lib/api/schemas/homepage.schema"
@@ -39,6 +40,7 @@ export default function CatalogBannerEditorPage() {
   const router = useRouter()
 
   const [section, setSection] = React.useState<HomepageSection | null>(null)
+  const [initialTitle, setInitialTitle] = React.useState("")
   const [slots, setSlots] = React.useState<CatalogBannerSlots>(defaultCatalogSlots())
   const [viewport, setViewport] = React.useState<ViewportMode>("desktop")
   const [isLoading, setIsLoading] = React.useState(true)
@@ -69,6 +71,7 @@ export default function CatalogBannerEditorPage() {
           metadata: { slots: defaultCatalogSlots() },
         })
         setSection(created)
+        setInitialTitle(created.title || "Banner Catalog")
         const initialSlots = defaultCatalogSlots()
         setSlots(initialSlots)
         savedSnapshotRef.current = JSON.stringify(initialSlots)
@@ -80,6 +83,7 @@ export default function CatalogBannerEditorPage() {
 
       if (sectionData) {
         setSection(sectionData)
+        setInitialTitle(sectionData.title || "")
         const metadata = sectionData.metadata as Record<string, any> | null
         if (metadata?.slots) {
           const loaded = { ...defaultCatalogSlots(), ...metadata.slots }
@@ -107,8 +111,10 @@ export default function CatalogBannerEditorPage() {
   // ─── Dirty tracking ──────────────────────────────────────────────────
 
   React.useEffect(() => {
-    setIsDirty(JSON.stringify(slots) !== savedSnapshotRef.current && savedSnapshotRef.current !== "")
-  }, [slots])
+    const isSlotsDirty = JSON.stringify(slots) !== savedSnapshotRef.current && savedSnapshotRef.current !== ""
+    const isTitleDirty = (section?.title || "") !== initialTitle
+    setIsDirty(isSlotsDirty || isTitleDirty)
+  }, [slots, section?.title, initialTitle])
 
   React.useEffect(() => {
     if (!isDirty) return
@@ -116,6 +122,19 @@ export default function CatalogBannerEditorPage() {
     window.addEventListener("beforeunload", handler)
     return () => window.removeEventListener("beforeunload", handler)
   }, [isDirty])
+
+  // Heartbeat presence pinging
+  React.useEffect(() => {
+    if (!id || id === "new") return
+
+    homepageService.sendHeartbeat(id).catch(console.error)
+
+    const interval = setInterval(() => {
+      homepageService.sendHeartbeat(id).catch(console.error)
+    }, 5000)
+
+    return () => clearInterval(interval)
+  }, [id])
 
   // ─── Update slot ─────────────────────────────────────────────────────
 
@@ -152,13 +171,15 @@ export default function CatalogBannerEditorPage() {
     if (!section) return
     try {
       setIsSaving(true)
-      await homepageService.updateSection(section.id, {
+      const payload = {
         title: section.title || "Banner Catalog",
         status: section.status || ContentStatus.DRAFT,
         sortOrder: section.sortOrder ?? 1,
         metadata: { slots },
-      })
+      }
+      await homepageService.updateSection(section.id, payload)
       savedSnapshotRef.current = JSON.stringify(slots)
+      setInitialTitle(payload.title)
       setIsDirty(false)
       alert("Đã lưu banner catalog!")
     } catch {
@@ -193,6 +214,18 @@ export default function CatalogBannerEditorPage() {
           <IconArrowLeft className="size-3.5" />
           Quay lại
         </button>
+
+        {/* Editable Title */}
+        <div className="flex items-center ml-1 shrink-0">
+          <Input
+            value={section?.title || ""}
+            onChange={(e) => setSection((prev) => prev ? { ...prev, title: e.target.value } : null)}
+            className="h-7 text-xs font-semibold px-2 py-1 bg-transparent hover:bg-muted/50 focus:bg-background border-none focus:ring-1 focus:ring-ring w-40 rounded-md transition-colors"
+            placeholder="Tên banner"
+          />
+        </div>
+
+        <Separator orientation="vertical" className="h-5 shrink-0" />
 
         <div className="flex-1" />
 

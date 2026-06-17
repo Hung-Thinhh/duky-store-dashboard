@@ -28,11 +28,15 @@ export const HomepageSectionSchema = z.object({
   sortOrder: z.number().default(0),
   metadata: z.record(z.string(), z.any()).optional().nullable(),
   items: z.array(HomepageItemSchema).default([]),
+  createdAt: z.string().optional().nullable(),
+  updatedAt: z.string().optional().nullable(),
 });
 
 export const CreateHomepageSectionPayloadSchema = HomepageSectionSchema.omit({
   id: true,
   items: true,
+  createdAt: true,
+  updatedAt: true,
 });
 
 export const UpdateHomepageSectionPayloadSchema = CreateHomepageSectionPayloadSchema.partial();

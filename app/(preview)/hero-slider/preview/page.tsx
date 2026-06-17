@@ -272,7 +272,7 @@ function PreviewLayer({ layer, isActive }: { layer: SlideLayer; isActive: boolea
     const buttonGradientCss = getGradientCss(layer)
     const btnStyle: React.CSSProperties = {
       display: "inline-block",
-      fontWeight: 600,
+      fontWeight: layer.fontWeight ?? 600,
       borderRadius: 9999,
       color: layer.textColor ?? "#ffffff",
       fontFamily:
@@ -280,7 +280,7 @@ function PreviewLayer({ layer, isActive }: { layer: SlideLayer; isActive: boolea
           ? "var(--font-playfair)"
           : "var(--font-montserrat)",
       padding: "10px 28px",
-      fontSize: "14px",
+      fontSize: layer.fontSize ? `${layer.fontSize}px` : "14px",
       border: layer.variant === "secondary" ? "2px solid #101114" : "none",
     }
     if (buttonGradientCss) {

@@ -4,6 +4,7 @@ import * as React from "react"
 import { useRouter } from "next/navigation"
 import {
   IconCarouselHorizontal,
+  IconCheck,
   IconEdit,
   IconLayoutGrid,
   IconLoader2,
@@ -11,6 +12,7 @@ import {
   IconPlus,
   IconSend,
   IconTrash,
+  IconX,
 } from "@tabler/icons-react"
 
 import { Badge } from "@/components/ui/badge"
@@ -24,6 +26,7 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog"
+import { Input } from "@/components/ui/input"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { homepageService } from "@/lib/api/services/homepage.service"
 import { type HomepageSection } from "@/lib/api/schemas/homepage.schema"
@@ -80,12 +83,55 @@ function getCatalogFirstImage(section: HomepageSection): string | null {
 
 // ─── Hero Slider Tab ──────────────────────────────────────────────────────
 
-function HeroSliderTab({ sections, onRefresh }: { sections: HomepageSection[]; onRefresh: () => void }) {
+function HeroSliderTab({
+  sections,
+  onRefresh,
+  onUpdateTitle,
+  activeEditors,
+}: {
+  sections: HomepageSection[];
+  onRefresh: (silent?: boolean) => Promise<void>;
+  onUpdateTitle: (id: string, newTitle: string) => void;
+  activeEditors: Record<string, Array<{ id: string; fullName: string; email: string }>>;
+}) {
   const router = useRouter()
   const [deleteTarget, setDeleteTarget] = React.useState<HomepageSection | null>(null)
   const [isDeleting, setIsDeleting] = React.useState(false)
   const [actionTarget, setActionTarget] = React.useState<HomepageSection | null>(null)
   const [isPublishing, setIsPublishing] = React.useState(false)
+
+  const [editingSectionId, setEditingSectionId] = React.useState<string | null>(null)
+  const [inlineTitleInput, setInlineTitleInput] = React.useState("")
+  const [isSavingInlineTitle, setIsSavingInlineTitle] = React.useState(false)
+  const isSavingRef = React.useRef(false)
+
+  const handleSaveInlineTitle = async (sectionId: string) => {
+    if (isSavingRef.current) return
+    const section = sections.find((s) => s.id === sectionId)
+    if (!section) return
+    const newTitle = inlineTitleInput.trim()
+    if (!newTitle || newTitle === (section.title || "")) {
+      setEditingSectionId(null)
+      return
+    }
+
+    const originalTitle = section.title || ""
+    onUpdateTitle(sectionId, newTitle)
+    setEditingSectionId(null)
+
+    isSavingRef.current = true
+    setIsSavingInlineTitle(true)
+    try {
+      await homepageService.updateSection(sectionId, { title: newTitle })
+      await onRefresh(true)
+    } catch {
+      onUpdateTitle(sectionId, originalTitle)
+      alert("Đổi tên thất bại. Đang khôi phục tiêu đề.")
+    } finally {
+      isSavingRef.current = false
+      setIsSavingInlineTitle(false)
+    }
+  }
 
   const handleCreate = () => router.push("/hero-slider/new")
 
@@ -158,7 +204,37 @@ function HeroSliderTab({ sections, onRefresh }: { sections: HomepageSection[]; o
               <Card key={section.id} className="rounded-xl cursor-pointer hover:shadow-md transition-shadow group" onClick={() => setActionTarget(section)}>
                 <CardHeader className="pb-2">
                   <div className="flex items-center justify-between">
-                    <CardTitle className="text-sm truncate flex-1">{section.title || "Hero Slider"}</CardTitle>
+                    {editingSectionId === section.id ? (
+                      <div className="flex-1 flex items-center gap-1.5" onClick={(e) => e.stopPropagation()}>
+                        <Input
+                          value={inlineTitleInput}
+                          onChange={(e) => setInlineTitleInput(e.target.value)}
+                          onKeyDown={async (e) => {
+                            if (e.key === "Enter") {
+                              await handleSaveInlineTitle(section.id)
+                            } else if (e.key === "Escape") {
+                              setEditingSectionId(null)
+                            }
+                          }}
+                          onBlur={() => handleSaveInlineTitle(section.id)}
+                          className="h-7 text-xs font-semibold px-2 py-0.5 rounded-md"
+                          autoFocus
+                          disabled={isSavingInlineTitle}
+                        />
+                      </div>
+                    ) : (
+                      <CardTitle
+                        className="text-sm truncate flex-1 hover:underline cursor-pointer decoration-dotted decoration-primary/40 underline-offset-4"
+                        onClick={(e) => {
+                          e.stopPropagation()
+                          setEditingSectionId(section.id)
+                          setInlineTitleInput(section.title || "")
+                        }}
+                        title="Click để đổi tên"
+                      >
+                        {section.title || "Hero Slider"}
+                      </CardTitle>
+                    )}
                     <Badge variant="secondary" className={`text-[10px] shrink-0 ml-2 ${statusInfo.className}`}>
                       {status === ContentStatus.PUBLISHED ? "Đang hiển thị" : statusInfo.label}
                     </Badge>
@@ -175,7 +251,24 @@ function HeroSliderTab({ sections, onRefresh }: { sections: HomepageSection[]; o
                     )}
                   </div>
                   <div className="flex items-center justify-between">
-                    <span className="text-xs text-muted-foreground">{slideCount} slide{slideCount !== 1 ? "s" : ""}</span>
+                    <div className="flex items-center gap-1.5 text-xs text-muted-foreground">
+                      <span>{slideCount} slide{slideCount !== 1 ? "s" : ""}</span>
+                      {section.updatedAt && (
+                        <>
+                          <span>•</span>
+                          <span>Cập nhật: {new Date(section.updatedAt).toLocaleDateString("vi-VN")}</span>
+                        </>
+                      )}
+                      {activeEditors[section.id] && activeEditors[section.id].length > 0 && (
+                        <>
+                          <span>•</span>
+                          <span className="text-amber-600 font-medium animate-pulse flex items-center gap-1" title={activeEditors[section.id].map(u => u.fullName).join(", ")}>
+                            <span className="inline-block size-1.5 rounded-full bg-amber-500 animate-ping" />
+                            Đang được sửa
+                          </span>
+                        </>
+                      )}
+                    </div>
                     <Button size="icon" variant="ghost" className="size-7 text-destructive opacity-0 group-hover:opacity-100 transition-opacity" onClick={(e) => { e.stopPropagation(); setDeleteTarget(section) }}>
                       <IconTrash className="size-3.5" />
                     </Button>
@@ -191,7 +284,9 @@ function HeroSliderTab({ sections, onRefresh }: { sections: HomepageSection[]; o
       <Dialog open={!!actionTarget} onOpenChange={() => setActionTarget(null)}>
         <DialogContent className="rounded-xl max-w-sm">
           <DialogHeader>
-            <DialogTitle>{actionTarget?.title || "Hero Slider"}</DialogTitle>
+            <DialogTitle className="text-base truncate">
+              {actionTarget?.title || "Hero Slider"}
+            </DialogTitle>
             <DialogDescription>
               {actionTarget && getSlideCount(actionTarget)} slides ·{" "}
               {actionTarget && (actionTarget.status === ContentStatus.PUBLISHED ? "Đang hiển thị" : statusConfig[actionTarget.status || ContentStatus.DRAFT]?.label || actionTarget.status)}
@@ -237,12 +332,55 @@ function HeroSliderTab({ sections, onRefresh }: { sections: HomepageSection[]; o
 
 // ─── Catalog Banner Tab ───────────────────────────────────────────────────
 
-function CatalogBannerTab({ sections, onRefresh }: { sections: HomepageSection[]; onRefresh: () => void }) {
+function CatalogBannerTab({
+  sections,
+  onRefresh,
+  onUpdateTitle,
+  activeEditors,
+}: {
+  sections: HomepageSection[];
+  onRefresh: (silent?: boolean) => Promise<void>;
+  onUpdateTitle: (id: string, newTitle: string) => void;
+  activeEditors: Record<string, Array<{ id: string; fullName: string; email: string }>>;
+}) {
   const router = useRouter()
   const [deleteTarget, setDeleteTarget] = React.useState<HomepageSection | null>(null)
   const [isDeleting, setIsDeleting] = React.useState(false)
   const [actionTarget, setActionTarget] = React.useState<HomepageSection | null>(null)
   const [isPublishing, setIsPublishing] = React.useState(false)
+
+  const [editingSectionId, setEditingSectionId] = React.useState<string | null>(null)
+  const [inlineTitleInput, setInlineTitleInput] = React.useState("")
+  const [isSavingInlineTitle, setIsSavingInlineTitle] = React.useState(false)
+  const isSavingRef = React.useRef(false)
+
+  const handleSaveInlineTitle = async (sectionId: string) => {
+    if (isSavingRef.current) return
+    const section = sections.find((s) => s.id === sectionId)
+    if (!section) return
+    const newTitle = inlineTitleInput.trim()
+    if (!newTitle || newTitle === (section.title || "")) {
+      setEditingSectionId(null)
+      return
+    }
+
+    const originalTitle = section.title || ""
+    onUpdateTitle(sectionId, newTitle)
+    setEditingSectionId(null)
+
+    isSavingRef.current = true
+    setIsSavingInlineTitle(true)
+    try {
+      await homepageService.updateSection(sectionId, { title: newTitle })
+      await onRefresh(true)
+    } catch {
+      onUpdateTitle(sectionId, originalTitle)
+      alert("Đổi tên thất bại. Đang khôi phục tiêu đề.")
+    } finally {
+      isSavingRef.current = false
+      setIsSavingInlineTitle(false)
+    }
+  }
 
   const handleCreate = () => {
     router.push("/hero-slider/catalog/new")
@@ -317,7 +455,37 @@ function CatalogBannerTab({ sections, onRefresh }: { sections: HomepageSection[]
               <Card key={section.id} className="rounded-xl cursor-pointer hover:shadow-md transition-shadow group" onClick={() => setActionTarget(section)}>
                 <CardHeader className="pb-2">
                   <div className="flex items-center justify-between">
-                    <CardTitle className="text-sm truncate flex-1">{section.title || "Banner Catalog"}</CardTitle>
+                    {editingSectionId === section.id ? (
+                      <div className="flex-1 flex items-center gap-1.5" onClick={(e) => e.stopPropagation()}>
+                        <Input
+                          value={inlineTitleInput}
+                          onChange={(e) => setInlineTitleInput(e.target.value)}
+                          onKeyDown={async (e) => {
+                            if (e.key === "Enter") {
+                              await handleSaveInlineTitle(section.id)
+                            } else if (e.key === "Escape") {
+                              setEditingSectionId(null)
+                            }
+                          }}
+                          onBlur={() => handleSaveInlineTitle(section.id)}
+                          className="h-7 text-xs font-semibold px-2 py-0.5 rounded-md"
+                          autoFocus
+                          disabled={isSavingInlineTitle}
+                        />
+                      </div>
+                    ) : (
+                      <CardTitle
+                        className="text-sm truncate flex-1 hover:underline cursor-pointer decoration-dotted decoration-primary/40 underline-offset-4"
+                        onClick={(e) => {
+                          e.stopPropagation()
+                          setEditingSectionId(section.id)
+                          setInlineTitleInput(section.title || "")
+                        }}
+                        title="Click để đổi tên"
+                      >
+                        {section.title || "Banner Catalog"}
+                      </CardTitle>
+                    )}
                     <Badge variant="secondary" className={`text-[10px] shrink-0 ml-2 ${statusInfo.className}`}>
                       {status === ContentStatus.PUBLISHED ? "Đang hiển thị" : statusInfo.label}
                     </Badge>
@@ -334,7 +502,24 @@ function CatalogBannerTab({ sections, onRefresh }: { sections: HomepageSection[]
                     )}
                   </div>
                   <div className="flex items-center justify-between">
-                    <span className="text-xs text-muted-foreground">{slotCount} slot{slotCount !== 1 ? "s" : ""}</span>
+                    <div className="flex items-center gap-1.5 text-xs text-muted-foreground">
+                      <span>{slotCount} slot{slotCount !== 1 ? "s" : ""}</span>
+                      {section.updatedAt && (
+                        <>
+                          <span>•</span>
+                          <span>Cập nhật: {new Date(section.updatedAt).toLocaleDateString("vi-VN")}</span>
+                        </>
+                      )}
+                      {activeEditors[section.id] && activeEditors[section.id].length > 0 && (
+                        <>
+                          <span>•</span>
+                          <span className="text-amber-600 font-medium animate-pulse flex items-center gap-1" title={activeEditors[section.id].map(u => u.fullName).join(", ")}>
+                            <span className="inline-block size-1.5 rounded-full bg-amber-500 animate-ping" />
+                            Đang được sửa
+                          </span>
+                        </>
+                      )}
+                    </div>
                     <Button size="icon" variant="ghost" className="size-7 text-destructive opacity-0 group-hover:opacity-100 transition-opacity" onClick={(e) => { e.stopPropagation(); setDeleteTarget(section) }}>
                       <IconTrash className="size-3.5" />
                     </Button>
@@ -350,7 +535,9 @@ function CatalogBannerTab({ sections, onRefresh }: { sections: HomepageSection[]
       <Dialog open={!!actionTarget} onOpenChange={() => setActionTarget(null)}>
         <DialogContent className="rounded-xl max-w-sm">
           <DialogHeader>
-            <DialogTitle>{actionTarget?.title || "Banner Catalog"}</DialogTitle>
+            <DialogTitle className="text-base truncate">
+              {actionTarget?.title || "Banner Catalog"}
+            </DialogTitle>
             <DialogDescription>
               {actionTarget && getCatalogSlotCount(actionTarget)} slots ·{" "}
               {actionTarget && (actionTarget.status === ContentStatus.PUBLISHED ? "Đang hiển thị" : statusConfig[actionTarget.status || ContentStatus.DRAFT]?.label || actionTarget.status)}
@@ -400,6 +587,7 @@ export default function BannerListPage() {
   const router = useRouter()
   const [heroSections, setHeroSections] = React.useState<HomepageSection[]>([])
   const [catalogSections, setCatalogSections] = React.useState<HomepageSection[]>([])
+  const [activeEditors, setActiveEditors] = React.useState<Record<string, Array<{ id: string; fullName: string; email: string }>>>({})
   const [isLoading, setIsLoading] = React.useState(true)
   const [activeTab, setActiveTab] = React.useState("hero")
 
@@ -418,24 +606,45 @@ export default function BannerListPage() {
     router.replace(`/hero-slider?tab=${tab}`, { scroll: false })
   }
 
-  const loadSections = React.useCallback(async () => {
+  const loadSections = React.useCallback(async (silent = false) => {
     try {
-      setIsLoading(true)
+      if (!silent) setIsLoading(true)
       const result = await homepageService.getSections()
       const all = result.data ?? []
       setHeroSections(all.filter((s) => s.type === "HERO"))
-      setCatalogSections(all.filter((s) => s.type === "CUSTOM" && s.title === "Banner Catalog"))
+      setCatalogSections(all.filter((s) => s.type === "CUSTOM"))
     } catch {
       setHeroSections([])
       setCatalogSections([])
     } finally {
-      setIsLoading(false)
+      if (!silent) setIsLoading(false)
+    }
+  }, [])
+
+  const updateSectionTitle = (id: string, newTitle: string) => {
+    setHeroSections((prev) => prev.map((s) => s.id === id ? { ...s, title: newTitle } : s))
+    setCatalogSections((prev) => prev.map((s) => s.id === id ? { ...s, title: newTitle } : s))
+  }
+
+  const loadActiveEditors = React.useCallback(async () => {
+    try {
+      const active = await homepageService.getActiveEditors()
+      setActiveEditors(active || {})
+    } catch (err) {
+      console.error("Failed to load active editors", err)
     }
   }, [])
 
   React.useEffect(() => {
     loadSections()
-  }, [loadSections])
+    loadActiveEditors()
+
+    const interval = setInterval(() => {
+      loadActiveEditors()
+    }, 5000)
+
+    return () => clearInterval(interval)
+  }, [loadSections, loadActiveEditors])
 
   if (isLoading) {
     return (
@@ -468,11 +677,11 @@ export default function BannerListPage() {
         </TabsList>
 
         <TabsContent value="hero">
-          <HeroSliderTab sections={heroSections} onRefresh={loadSections} />
+          <HeroSliderTab sections={heroSections} onRefresh={loadSections} onUpdateTitle={updateSectionTitle} activeEditors={activeEditors} />
         </TabsContent>
 
         <TabsContent value="catalog">
-          <CatalogBannerTab sections={catalogSections} onRefresh={loadSections} />
+          <CatalogBannerTab sections={catalogSections} onRefresh={loadSections} onUpdateTitle={updateSectionTitle} activeEditors={activeEditors} />
         </TabsContent>
       </Tabs>
     </div>

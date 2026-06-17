@@ -30,7 +30,7 @@ interface SliderCanvasProps {
   onSelectLayer: (index: number | null) => void
   selectedLayerIndices?: number[]
   onSelectLayers?: (indices: number[]) => void
-  onUpdateLayerPosition: (layerIndex: number, left: number, top: number) => void
+  onUpdateLayerPosition: (layerIndex: number, left: number, top: number, singleOnly?: boolean) => void
   onUpdateLayerSize: (layerIndex: number, width: number, height: number) => void
   onUpdateLayerDirect?: (layerIndex: number, updater: (l: SlideLayer) => SlideLayer) => void
   onDragStart?: () => void
@@ -355,7 +355,7 @@ export function SliderCanvas({
             newW = Math.max(5, startW + dx)
             newH = newW / aspectRatio
           } else if (d === "sw") {
-            const clampedDx = Math.max(-startL, Math.min(startW - 5, dx))
+            const clampedDx = Math.min(startW - 5, dx)
             newL = startL + clampedDx
             newW = startW - clampedDx
             newH = newW / aspectRatio
@@ -364,7 +364,7 @@ export function SliderCanvas({
             newH = newW / aspectRatio
             newT = startT + (startH - newH)
           } else if (d === "nw") {
-            const clampedDx = Math.max(-startL, Math.min(startW - 5, dx))
+            const clampedDx = Math.min(startW - 5, dx)
             newL = startL + clampedDx
             newW = startW - clampedDx
             newH = newW / aspectRatio
@@ -375,10 +375,7 @@ export function SliderCanvas({
             newW = Math.max(5, resizeDragState.current.startWidth + dx)
           }
           if (d === "w") {
-            const clampedDx = Math.max(
-              -resizeDragState.current.startLeft,
-              Math.min(resizeDragState.current.startWidth - 5, dx),
-            )
+            const clampedDx = Math.min(resizeDragState.current.startWidth - 5, dx)
             newL = resizeDragState.current.startLeft + clampedDx
             newW = resizeDragState.current.startWidth - clampedDx
           }
@@ -386,17 +383,14 @@ export function SliderCanvas({
             newH = Math.max(5, resizeDragState.current.startHeight + dy)
           }
           if (d === "n") {
-            const clampedDy = Math.max(
-              -resizeDragState.current.startTop,
-              Math.min(resizeDragState.current.startHeight - 5, dy),
-            )
+            const clampedDy = Math.min(resizeDragState.current.startHeight - 5, dy)
             newT = resizeDragState.current.startTop + clampedDy
             newH = resizeDragState.current.startHeight - clampedDy
           }
         }
 
         onUpdateLayerSize(selectedLayerIndex, Math.round(newW), Math.round(newH))
-        onUpdateLayerPosition(selectedLayerIndex, Math.round(newL), Math.round(newT))
+        onUpdateLayerPosition(selectedLayerIndex, Math.round(newL), Math.round(newT), true)
       }
 
       const handleMouseUp = () => {
@@ -455,7 +449,7 @@ export function SliderCanvas({
             {/* Canvas */}
             <div
               id="slider-canvas-element"
-              className="absolute left-0 top-0 overflow-hidden bg-white shadow-[0_4px_24px_rgba(0,0,0,0.12)] font-montserrat"
+              className="absolute left-0 top-0 overflow-visible bg-white shadow-[0_4px_24px_rgba(0,0,0,0.12)] font-montserrat"
               style={{
                 width: `${canonical.width}px`,
                 height: `${canonical.height}px`,
