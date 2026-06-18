@@ -259,6 +259,7 @@ export function LayerNode({
           fontSize: layer.fontSize ? `${layer.fontSize}px` : "14px",
           fontWeight: layer.fontWeight ?? 600,
           border: layer.variant === "secondary" ? "2px solid #101114" : "none",
+          whiteSpace: "nowrap",
         }
         if (buttonGradientCss) {
           btnStyle.background = buttonGradientCss
