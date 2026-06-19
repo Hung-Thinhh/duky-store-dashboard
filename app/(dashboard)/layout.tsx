@@ -12,9 +12,9 @@ export default function DashboardLayout({
     <TooltipProvider>
       <SidebarProvider>
         <AppSidebar />
-        <div className="flex min-h-svh flex-1 flex-col">
+        <div className="flex min-h-svh flex-1 flex-col min-w-0">
           <Topbar />
-          <main className="flex-1 bg-background">
+          <main className="flex-1 bg-background min-w-0">
             {children}
           </main>
         </div>
