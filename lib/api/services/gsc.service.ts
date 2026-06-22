@@ -31,7 +31,7 @@ export const gscService = {
     const response = await apiClient.post(
       "/admin/gsc/inspect",
       { urls },
-      { timeout: 300000 }
+      { timeout: 900000 }
     )
     return GscInspectResponseSchema.parse(response).DT
   },

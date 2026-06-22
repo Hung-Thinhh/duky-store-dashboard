@@ -36,7 +36,7 @@ export const productService = {
 
   async assistWithAi(data: ProductAiAssistPayload) {
     const response = await apiClient.post("/admin/product-ai/assist", data, {
-      timeout: 300000,
+      timeout: 900000,
     });
     return ProductAiAssistResponseSchema.parse(response).DT;
   },

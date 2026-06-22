@@ -61,6 +61,8 @@ import {
   DialogClose,
   DialogContent,
   DialogTitle,
+  DialogDescription,
+  DialogHeader,
 } from "@/components/ui/dialog"
 import { InlineFeedback } from "@/components/ui/inline-feedback"
 import { Input } from "@/components/ui/input"
@@ -1734,6 +1736,9 @@ export default function ProductDetailPage() {
     tone: "success" | "error"
   } | null>(null)
 
+  const [isSlugManual, setIsSlugManual] = React.useState(false)
+  const [isSeoOpen, setIsSeoOpen] = React.useState(false)
+
   const [toast, setToast] = React.useState<{
     message: string
     tone: "success" | "error" | "info"
@@ -1858,6 +1863,7 @@ export default function ProductDetailPage() {
         metaDescription: "",
         canonicalUrl: "",
         focusKeyword: "",
+        noIndex: false,
       },
     },
   })
@@ -2412,6 +2418,7 @@ export default function ProductDetailPage() {
   // Tự động sinh Slug và SKU từ tên sản phẩm khi thêm mới
   React.useEffect(() => {
     if (!isNew || !productName) return
+    if (isSlugManual) return
 
     const nextSlug = slugify(productName)
     setValue("slug", nextSlug, { shouldDirty: true, shouldValidate: true })
@@ -2700,6 +2707,7 @@ export default function ProductDetailPage() {
             metaDescription: "",
             canonicalUrl: "",
             focusKeyword: "",
+            noIndex: false,
             ...(detail.seo ?? {}),
           },
         })
@@ -2865,6 +2873,7 @@ export default function ProductDetailPage() {
           focusKeyword: data.seo?.focusKeyword || null,
           seoScore: seoAnalysis.score,
           analysisJson: seoAnalysis,
+          noIndex: Boolean(data.seo?.noIndex),
         },
       })
       let nextId = params.id as string
@@ -3509,9 +3518,11 @@ export default function ProductDetailPage() {
           </div>
         </div>
         <div className="flex items-center gap-2">
-          <div
+          <button
+            type="button"
+            onClick={() => setIsSeoOpen(true)}
             className={cn(
-              "inline-flex items-center gap-1.5 rounded-full px-3 py-1.5 text-xs font-semibold shadow-sm border transition-all bg-white mr-1",
+              "inline-flex items-center gap-1.5 rounded-full px-3 py-1.5 text-xs font-semibold shadow-sm border transition-all bg-white mr-1 hover:bg-orange-50/50 hover:border-orange-200 cursor-pointer active:scale-95",
               seoAnalysis.score >= 80
                 ? "border-green-200 text-green-700 shadow-green-100/30"
                 : seoAnalysis.score >= 55
@@ -3530,7 +3541,21 @@ export default function ProductDetailPage() {
               )}
             />
             Điểm SEO: {seoAnalysis.score}/100
-          </div>
+          </button>
+          <Controller
+            control={control}
+            name="seo.noIndex"
+            render={({ field }) => (
+              <label className="inline-flex items-center gap-2 cursor-pointer rounded-xl border border-input bg-white px-3 py-1.5 text-xs font-semibold shadow-sm hover:bg-slate-50 mr-1 select-none">
+                <Checkbox
+                  checked={Boolean(field.value)}
+                  onCheckedChange={(checked) => field.onChange(Boolean(checked))}
+                  className="rounded border-muted-foreground/25"
+                />
+                <span className="text-muted-foreground">noIndex</span>
+              </label>
+            )}
+          />
           <Button
             type="button"
             variant="outline"
@@ -3575,8 +3600,52 @@ export default function ProductDetailPage() {
                 )}
               </div>
 
-              {/* Ẩn Slug và SKU trên giao diện nhưng vẫn giữ input ẩn để tự sinh và submit dữ liệu */}
-              <input type="hidden" {...register("slug")} />
+              <div className="flex flex-col gap-2">
+                <div className="flex items-center justify-between">
+                  <Label htmlFor="slug">Đường dẫn (Slug) *</Label>
+                  {productName && (
+                    <Button
+                      type="button"
+                      variant="ghost"
+                      size="sm"
+                      className="h-7 rounded-lg bg-orange-50 px-2 text-xs text-orange-700 hover:bg-orange-100 hover:text-orange-800 gap-1"
+                      onClick={() => {
+                        const nextSlug = slugify(productName)
+                        setValue("slug", nextSlug, { shouldDirty: true, shouldValidate: true })
+                        setIsSlugManual(true)
+                      }}
+                    >
+                      <IconWand className="size-3" />
+                      Đồng bộ theo tên mới
+                    </Button>
+                  )}
+                </div>
+                <Input
+                  id="slug"
+                  {...register("slug", {
+                    onChange: (e) => {
+                      const cleaned = slugify(e.target.value)
+                      setValue("slug", cleaned, { shouldDirty: true, shouldValidate: true })
+                      setIsSlugManual(true)
+                    }
+                  })}
+                  className="rounded-xl font-mono text-sm"
+                />
+                <p className="text-xs leading-5 text-stone-500">
+                  URL sản phẩm trên web: <span className="font-mono text-stone-700 bg-stone-100 px-1 py-0.5 rounded">/san-pham/{slug || "duong-dan"}</span>. 
+                  {!isNew && (
+                    <span className="text-amber-600 font-medium"> Cảnh báo:</span>
+                  )}
+                  {!isNew && " Thay đổi đường dẫn sản phẩm đã đăng có thể làm gãy các liên kết cũ và làm mất index trên Google."}
+                </p>
+                {errors.slug && (
+                  <p className="text-xs text-destructive">
+                    {errors.slug.message as string}
+                  </p>
+                )}
+              </div>
+
+              {/* SKU giữ ẩn hoặc đổi thành hiển thị nếu cần, hiện tại giữ ẩn theo cấu hình cũ */}
               <input type="hidden" {...register("sku")} />
 
               <div className="flex flex-col gap-2">
@@ -5404,6 +5473,20 @@ export default function ProductDetailPage() {
           </div>
         </div>
       ) : null}
+
+      <Dialog open={isSeoOpen} onOpenChange={setIsSeoOpen}>
+        <DialogContent className="max-w-2xl max-h-[85vh] overflow-y-auto rounded-2xl p-6">
+          <DialogHeader>
+            <DialogTitle>Bảng chi tiết điểm SEO</DialogTitle>
+            <DialogDescription>
+              Xem chi tiết các tiêu chí kiểm tra SEO của sản phẩm.
+            </DialogDescription>
+          </DialogHeader>
+          <div className="mt-2">
+            <SeoAnalysisPanel analysis={seoAnalysis} />
+          </div>
+        </DialogContent>
+      </Dialog>
     </form>
   )
 }

@@ -12,13 +12,21 @@ import {
 // ─── Utility Functions ───────────────────────────────────────────────────────
 
 /**
- * Check if text contains keyword (case-insensitive, whole phrase match, Vietnamese NFC normalized).
+ * Check if text contains keyword (case-insensitive, whole phrase match, Vietnamese NFC normalized, with accentless fallback).
  */
 export function containsKeyword(text: string, keyword: string): boolean {
   if (!keyword.trim()) return false
   const normalizedText = text.normalize('NFC').toLowerCase()
   const normalizedKeyword = keyword.normalize('NFC').toLowerCase().trim()
-  return normalizedText.includes(normalizedKeyword)
+  
+  if (normalizedText.includes(normalizedKeyword)) {
+    return true
+  }
+
+  // Fallback to accentless (không dấu) comparison
+  const accentlessText = toSlug(text).replace(/-/g, ' ')
+  const accentlessKeyword = toSlug(keyword).replace(/-/g, ' ')
+  return accentlessText.includes(accentlessKeyword)
 }
 
 function getSecondaryKeywords(input: SeoInput): string[] {
@@ -32,7 +40,7 @@ function countMatchedKeywords(text: string, keywords: string[]): number {
 }
 
 /**
- * Count non-overlapping occurrences of keyword in text (case-insensitive, Vietnamese NFC normalized).
+ * Count non-overlapping occurrences of keyword in text (case-insensitive, Vietnamese NFC normalized, with accentless fallback).
  */
 export function countKeywordOccurrences(text: string, keyword: string): number {
   if (!keyword.trim()) return 0
@@ -44,7 +52,21 @@ export function countKeywordOccurrences(text: string, keyword: string): number {
     count++
     pos += normalizedKeyword.length
   }
-  return count
+  
+  if (count > 0) {
+    return count
+  }
+
+  // Fallback to accentless (không dấu) counting
+  const accentlessText = toSlug(text).replace(/-/g, ' ')
+  const accentlessKeyword = toSlug(keyword).replace(/-/g, ' ')
+  let accentlessCount = 0
+  let accentlessPos = 0
+  while ((accentlessPos = accentlessText.indexOf(accentlessKeyword, accentlessPos)) !== -1) {
+    accentlessCount++
+    accentlessPos += accentlessKeyword.length
+  }
+  return accentlessCount
 }
 
 /**
@@ -92,7 +114,14 @@ export function keywordAtBeginningOfTitle(title: string, keyword: string): boole
   const normalizedKeyword = keyword.normalize('NFC').toLowerCase().trim()
 
   const index = normalizedTitle.indexOf(normalizedKeyword)
-  if (index === -1) return false
+  if (index === -1) {
+    // Fallback to accentless
+    const accentlessTitle = toSlug(title).replace(/-/g, ' ')
+    const accentlessKeyword = toSlug(keyword).replace(/-/g, ' ')
+    const accentlessIndex = accentlessTitle.indexOf(accentlessKeyword)
+    if (accentlessIndex === -1) return false
+    return accentlessIndex <= Math.max(0, accentlessTitle.length / 2)
+  }
 
   return index <= Math.max(0, title.length / 2)
 }

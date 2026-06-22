@@ -1,7 +1,7 @@
 "use client"
 
 import * as React from "react"
-import { IconLoader2, IconPlus, IconSearch, IconSettings, IconTrash, IconX } from "@tabler/icons-react"
+import { IconLoader2, IconPlus, IconSearch, IconSettings, IconTrash, IconX, IconGripVertical, IconDeviceFloppy } from "@tabler/icons-react"
 import { Button } from "@/components/ui/button"
 import {
   Dialog,
@@ -33,6 +33,9 @@ export default function VariantsPage() {
   const [termName, setTermName] = React.useState("")
   const [deleteTermTarget, setDeleteTermTarget] = React.useState<{ id: string; name: string } | null>(null)
   const [toast, setToast] = React.useState<{ message: string; tone: "success" | "error" | "info" } | null>(null)
+  const [draggingTermId, setDraggingTermId] = React.useState<string | null>(null)
+  const [dragOverTermId, setDragOverTermId] = React.useState<string | null>(null)
+  const [isTermsOrderDirty, setIsTermsOrderDirty] = React.useState(false)
 
   const fetchAttributes = React.useCallback(async () => {
     try {
@@ -64,6 +67,7 @@ export default function VariantsPage() {
     setSelectedAttribute(null)
     setForm({ name: "", slug: "", type: "OTHER", sortBy: "custom", swatch: "default" })
     setTermName("")
+    setIsTermsOrderDirty(false)
   }
 
   const handleSubmitAttribute = async (event: React.FormEvent) => {
@@ -103,6 +107,7 @@ export default function VariantsPage() {
       swatch: attribute.swatch,
     })
     setTermName("")
+    setIsTermsOrderDirty(false)
   }
 
   const handleCreateTerm = async () => {
@@ -127,6 +132,82 @@ export default function VariantsPage() {
 
   const handleDeleteTerm = (termId: string, name: string) => {
     setDeleteTermTarget({ id: termId, name })
+  }
+
+  const handleDragStartTerm = (event: React.DragEvent, termId: string) => {
+    event.dataTransfer.setData("text/plain", termId)
+    setDraggingTermId(termId)
+  }
+
+  const handleDragOverTerm = (event: React.DragEvent, termId: string) => {
+    event.preventDefault()
+    if (draggingTermId && draggingTermId !== termId) {
+      setDragOverTermId(termId)
+    }
+  }
+
+  const handleDropTerm = (event: React.DragEvent, targetTermId: string) => {
+    event.preventDefault()
+    const sourceTermId = event.dataTransfer.getData("text/plain")
+    if (!sourceTermId || sourceTermId === targetTermId || !selectedAttribute) {
+      setDraggingTermId(null)
+      setDragOverTermId(null)
+      return
+    }
+
+    const currentTerms = [...selectedAttribute.terms]
+    const sourceIndex = currentTerms.findIndex((t) => t.id === sourceTermId)
+    const targetIndex = currentTerms.findIndex((t) => t.id === targetTermId)
+    if (sourceIndex === -1 || targetIndex === -1) {
+      setDraggingTermId(null)
+      setDragOverTermId(null)
+      return
+    }
+
+    const [movedTerm] = currentTerms.splice(sourceIndex, 1)
+    currentTerms.splice(targetIndex, 0, movedTerm)
+
+    const updatedTerms = currentTerms.map((t, index) => ({
+      ...t,
+      sortOrder: index,
+    }))
+
+    const updatedAttribute = {
+      ...selectedAttribute,
+      terms: updatedTerms,
+    }
+    setSelectedAttribute(updatedAttribute)
+    setAttributes((prev) =>
+      prev.map((attr) => (attr.id === selectedAttribute.id ? updatedAttribute : attr))
+    )
+    setIsTermsOrderDirty(true)
+    setDraggingTermId(null)
+    setDragOverTermId(null)
+  }
+
+  const handleSaveTermsOrder = async () => {
+    if (!selectedAttribute || !isTermsOrderDirty) return
+    try {
+      setIsSaving(true)
+      await Promise.all(
+        selectedAttribute.terms.map((t) =>
+          productAttributeService.updateTerm(t.id, {
+            name: t.name,
+            slug: t.slug,
+            sortOrder: t.sortOrder,
+            value: t.value,
+          })
+        )
+      )
+      setToast({ message: "Đã lưu thứ tự chủng loại thành công", tone: "success" })
+      setIsTermsOrderDirty(false)
+      fetchAttributes()
+    } catch (error) {
+      console.error("Failed to save terms order", error)
+      setToast({ message: "Lỗi khi lưu thứ tự chủng loại", tone: "error" })
+    } finally {
+      setIsSaving(false)
+    }
   }
 
   const handleConfirmDeleteTerm = async () => {
@@ -228,7 +309,22 @@ export default function VariantsPage() {
 
         {selectedAttribute && (
           <div className="mt-6 rounded-xl border bg-muted/20 p-4">
-            <div className="font-semibold">Cấu hình chủng loại</div>
+            <div className="flex items-center justify-between">
+              <div className="font-semibold">Cấu hình chủng loại</div>
+              {isTermsOrderDirty && (
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="sm"
+                  onClick={handleSaveTermsOrder}
+                  disabled={isSaving}
+                  className="h-7 rounded-lg border-orange-200 bg-orange-50 text-xs font-semibold text-orange-700 hover:bg-orange-100 hover:text-orange-800 gap-1 px-2.5 py-0"
+                >
+                  {isSaving ? <IconLoader2 className="size-3 animate-spin" /> : <IconDeviceFloppy className="size-3" />}
+                  Lưu thứ tự mới
+                </Button>
+              )}
+            </div>
             <div className="mt-3 flex gap-2">
               <Input value={termName} onChange={(event) => setTermName(event.target.value)} placeholder="VD: 39, 40, Đen..." className="rounded-xl" />
               <Button type="button" onClick={handleCreateTerm} disabled={isSaving || !termName.trim()} className="rounded-xl">Thêm</Button>
@@ -237,13 +333,28 @@ export default function VariantsPage() {
               {selectedAttribute.terms.map((term) => (
                 <span
                   key={term.id}
-                  className="inline-flex items-center gap-1 rounded-full border bg-white pl-3 pr-1.5 py-1 text-sm text-foreground transition-all hover:bg-muted/30"
+                  draggable={!isSaving}
+                  onDragStart={(e) => handleDragStartTerm(e, term.id)}
+                  onDragOver={(e) => handleDragOverTerm(e, term.id)}
+                  onDragEnd={() => {
+                    setDraggingTermId(null)
+                    setDragOverTermId(null)
+                  }}
+                  onDrop={(e) => handleDropTerm(e, term.id)}
+                  className={`inline-flex items-center gap-1 rounded-full border px-3 py-1 text-sm text-foreground transition-all select-none cursor-grab active:cursor-grabbing ${
+                    draggingTermId === term.id ? "opacity-40 scale-95" : ""
+                  } ${
+                    dragOverTermId === term.id
+                      ? "border-dashed border-orange-50 bg-orange-50"
+                      : "bg-white border-stone-200 hover:bg-muted/30"
+                  }`}
                 >
+                  <IconGripVertical className="size-3 text-muted-foreground shrink-0" />
                   <span>{term.name}</span>
                   <button
                     type="button"
                     onClick={() => handleDeleteTerm(term.id, term.name)}
-                    className="flex size-4 items-center justify-center rounded-full text-muted-foreground hover:text-destructive focus:outline-none transition-all"
+                    className="flex size-4 items-center justify-center rounded-full text-muted-foreground hover:text-destructive focus:outline-none transition-all ml-1"
                     title={`Xóa ${term.name}`}
                   >
                     <IconX className="size-3" />

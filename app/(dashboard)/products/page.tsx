@@ -14,6 +14,7 @@ import {
   IconFilter,
   IconLoader2,
   IconPlus,
+  IconQrcode,
   IconSearch,
   IconTrash,
   IconUpload,
@@ -263,6 +264,33 @@ export default function ProductsPage() {
     stockQuantity: "",
     lowStockThreshold: "",
   })
+  const [qrModalOpen, setQrModalOpen] = React.useState(false)
+  const [qrModalProduct, setQrModalProduct] = React.useState<ProductListItem | null>(null)
+
+  const handleOpenQrModal = (product: ProductListItem) => {
+    setQrModalProduct(product)
+    setQrModalOpen(true)
+  }
+
+  const downloadQrCode = async (slug: string, name: string) => {
+    const productUrl = `https://dukystore.com/san-pham/${slug}`
+    const qrUrl = `https://api.qrserver.com/v1/create-qr-code/?size=500x500&data=${encodeURIComponent(productUrl)}`
+    try {
+      const response = await fetch(qrUrl)
+      const blob = await response.blob()
+      const blobUrl = URL.createObjectURL(blob)
+      const link = document.createElement("a")
+      link.href = blobUrl
+      link.download = `qrcode-${slug}.png`
+      document.body.appendChild(link)
+      link.click()
+      document.body.removeChild(link)
+      URL.revokeObjectURL(blobUrl)
+    } catch (error) {
+      console.error("Failed to download QR code", error)
+    }
+  }
+
   const importInputRef = React.useRef<HTMLInputElement>(null)
 
   const fetchProducts = React.useCallback(async () => {
@@ -964,8 +992,10 @@ export default function ProductsPage() {
                 />
               </TableHead>
               <TableHead className="w-[84px]">Ảnh</TableHead>
-              <TableHead className="min-w-[280px]">Sản phẩm</TableHead>
-              <TableHead className="min-w-[150px]">Loại</TableHead>
+              <TableHead className="w-[84px]">Mã QR</TableHead>
+              <TableHead className="min-w-[240px]">Sản phẩm</TableHead>
+              <TableHead className="min-w-[120px] text-right">Giá bán</TableHead>
+              <TableHead className="min-w-[130px]">Loại</TableHead>
               <TableHead className="text-right">Có thể bán</TableHead>
               <TableHead className="text-right">Tồn kho</TableHead>
               <TableHead className="min-w-[120px]">Ngày khởi tạo</TableHead>
@@ -976,14 +1006,14 @@ export default function ProductsPage() {
           <TableBody>
             {isLoading ? (
               <TableRow>
-                <TableCell colSpan={10} className="h-40 text-center">
+                <TableCell colSpan={12} className="h-40 text-center">
                   <IconLoader2 className="mx-auto animate-spin text-muted-foreground" />
                 </TableCell>
               </TableRow>
             ) : visibleProducts.length === 0 ? (
               <TableRow>
                 <TableCell
-                  colSpan={10}
+                  colSpan={12}
                   className="h-40 text-center text-muted-foreground"
                 >
                   Không tìm thấy sản phẩm nào.
@@ -1049,6 +1079,18 @@ export default function ProductsPage() {
                         />
                       </TableCell>
                       <TableCell>
+                        {/* eslint-disable-next-line @next/next/no-img-element */}
+                        <img
+                          src={`https://api.qrserver.com/v1/create-qr-code/?size=100x100&data=${encodeURIComponent(
+                            `https://dukystore.com/san-pham/${product.slug}`
+                          )}`}
+                          alt="QR Code"
+                          className="size-11 border bg-white object-contain rounded-md cursor-pointer hover:scale-105 transition-transform"
+                          onClick={() => handleOpenQrModal(product)}
+                          title="Click để phóng to và tải mã QR"
+                        />
+                      </TableCell>
+                      <TableCell>
                         <div className="flex min-w-0 flex-col gap-1">
                           <Link
                             href={`/products/${product.id}`}
@@ -1084,6 +1126,26 @@ export default function ProductsPage() {
                             )}
                           </div>
                         </div>
+                      </TableCell>
+                      <TableCell className="text-right font-medium">
+                        {product.contactForPrice ? (
+                          <span className="text-muted-foreground text-sm">Giá liên hệ</span>
+                        ) : (
+                          <div className="flex flex-col items-end gap-0.5">
+                            {product.salePrice != null ? (
+                              <>
+                                <span className="text-danger font-semibold">
+                                  {formatPrice(product.salePrice)}
+                                </span>
+                                <span className="text-xs text-muted-foreground line-through">
+                                  {formatPrice(product.originalPrice)}
+                                </span>
+                              </>
+                            ) : (
+                              <span>{formatPrice(product.originalPrice)}</span>
+                            )}
+                          </div>
+                        )}
                       </TableCell>
                       <TableCell>
                         <div className="flex flex-col gap-1">
@@ -1134,6 +1196,10 @@ export default function ProductsPage() {
                                 Xem chi tiết
                               </Link>
                             </DropdownMenuItem>
+                            <DropdownMenuItem onClick={() => handleOpenQrModal(product)}>
+                              <IconQrcode data-icon="inline-start" />
+                              Mã QR
+                            </DropdownMenuItem>
                             {hasPermission('products.delete') && (
                               <DropdownMenuItem
                                 className="text-destructive focus:text-destructive"
@@ -1153,7 +1219,7 @@ export default function ProductsPage() {
 
                     {isExpanded && (
                       <TableRow className="bg-info-soft/35 hover:bg-info-soft/35">
-                        <TableCell colSpan={10} className="p-0">
+                        <TableCell colSpan={12} className="p-0">
                           <div className="ml-20 max-w-[1040px] border-l bg-card">
                             <Table>
                               <TableHeader className="bg-card">
@@ -1406,6 +1472,42 @@ export default function ProductsPage() {
               Cập nhật {selectedIds.length} sản phẩm
             </Button>
           </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      <Dialog open={qrModalOpen} onOpenChange={setQrModalOpen}>
+        <DialogContent className="sm:max-w-md">
+          <DialogHeader>
+            <DialogTitle className="text-center font-bold">Mã QR Sản Phẩm</DialogTitle>
+          </DialogHeader>
+          {qrModalProduct && (
+            <div className="flex flex-col items-center justify-center p-6 text-center space-y-4">
+              <div className="font-semibold text-lg text-primary">{qrModalProduct.name}</div>
+              {qrModalProduct.sku && (
+                <div className="text-sm text-muted-foreground font-mono">SKU: {qrModalProduct.sku}</div>
+              )}
+              <div className="p-4 bg-white border rounded-xl shadow-sm">
+                {/* eslint-disable-next-line @next/next/no-img-element */}
+                <img
+                  src={`https://api.qrserver.com/v1/create-qr-code/?size=250x250&data=${encodeURIComponent(
+                    `https://dukystore.com/san-pham/${qrModalProduct.slug}`
+                  )}`}
+                  alt={`QR code for ${qrModalProduct.name}`}
+                  className="size-52"
+                />
+              </div>
+              <p className="text-xs text-muted-foreground break-all max-w-[280px]">
+                https://dukystore.com/san-pham/{qrModalProduct.slug}
+              </p>
+              <Button
+                onClick={() => downloadQrCode(qrModalProduct.slug, qrModalProduct.name)}
+                className="w-full flex items-center justify-center gap-2 mt-4"
+              >
+                <IconDownload className="size-4" />
+                Tải mã QR
+              </Button>
+            </div>
+          )}
         </DialogContent>
       </Dialog>
     </div>

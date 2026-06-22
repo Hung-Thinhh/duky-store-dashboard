@@ -4239,6 +4239,7 @@ export default function BlogPostDetailPage() {
   const [tags, setTags] = React.useState<Tag[]>([])
   const [isLoading, setIsLoading] = React.useState(!isNew)
   const [isSaving, setIsSaving] = React.useState(false)
+  const [isSlugManual, setIsSlugManual] = React.useState(!isNew)
   const [isPreviewOpen, setIsPreviewOpen] = React.useState(false)
   const [isAiPreviewOpen, setIsAiPreviewOpen] = React.useState(false)
   const [isMediaPickerOpen, setIsMediaPickerOpen] = React.useState(false)
@@ -4774,6 +4775,7 @@ export default function BlogPostDetailPage() {
   }, [autoSaveDraft])
 
   React.useEffect(() => {
+    if (isSlugManual) return
     const nextSlug = slugify(preview.title ?? "")
     if ((preview.slug ?? "") === nextSlug) return
 
@@ -4781,7 +4783,7 @@ export default function BlogPostDetailPage() {
       shouldDirty: false,
       shouldValidate: Boolean(nextSlug),
     })
-  }, [preview.slug, preview.title, setValue])
+  }, [preview.slug, preview.title, setValue, isSlugManual])
 
   React.useEffect(() => {
     const autoSeo = buildAutoSeoFields({
@@ -5532,6 +5534,20 @@ export default function BlogPostDetailPage() {
               </span>
             )}
             </button>
+            <Controller
+              control={control}
+              name="seo.noIndex"
+              render={({ field }) => (
+                <label className="inline-flex items-center gap-1.5 cursor-pointer rounded-full border border-stone-300 bg-white px-2.5 py-1.5 text-xs font-semibold hover:bg-stone-50 select-none">
+                  <Checkbox
+                    checked={Boolean(field.value)}
+                    onCheckedChange={(checked) => field.onChange(Boolean(checked))}
+                    className="rounded border-stone-400 size-3.5"
+                  />
+                  <span className="text-stone-600">noIndex</span>
+                </label>
+              )}
+            />
             <Button
               type="button"
               variant="outline"
@@ -5597,12 +5613,48 @@ export default function BlogPostDetailPage() {
                   />
                 </div>
 
-                <input type="hidden" {...register("slug")} />
-                <div className="flex min-w-0 items-center gap-2 rounded-xl px-3  text-sm">
-                  <span className="shrink-0 text-stone-500">Slug:/</span>
-                  <span className="min-w-0 flex-1 truncate font-mono text-orange-500">
-                    {preview.slug || generatedSlug || "bai-viet"}
-                  </span>
+                <div className="flex min-w-0 flex-col gap-1.5 px-3">
+                  <div className="flex min-w-0 items-center gap-2 text-sm">
+                    <span className="shrink-0 text-stone-500 font-medium">URL Slug:</span>
+                    <input
+                      {...register("slug", {
+                        onChange: (e) => {
+                          const cleaned = slugify(e.target.value)
+                          setValue("slug", cleaned, { shouldDirty: true, shouldValidate: true })
+                          setIsSlugManual(true)
+                        }
+                      })}
+                      className="min-w-0 flex-1 rounded border border-stone-200 bg-white px-2 py-0.5 font-mono text-xs text-orange-600 focus:border-orange-400 focus:outline-none"
+                      placeholder="url-slug-bai-viet"
+                    />
+                    {isSlugManual && (
+                      <Button
+                        type="button"
+                        variant="ghost"
+                        size="sm"
+                        className="h-6 rounded bg-orange-50 px-2 text-[10px] text-orange-700 hover:bg-orange-100 hover:text-orange-800 gap-1"
+                        onClick={() => {
+                          const nextSlug = slugify(preview.title ?? "")
+                          setValue("slug", nextSlug, { shouldDirty: true, shouldValidate: true })
+                          setIsSlugManual(false)
+                        }}
+                      >
+                        <IconWand className="size-3" />
+                        Đồng bộ
+                      </Button>
+                    )}
+                  </div>
+                  <div className="flex min-w-0 items-center gap-2 text-xs text-stone-400">
+                    <span className="shrink-0">Preview:</span>
+                    <span className="min-w-0 flex-1 truncate font-mono">
+                      /blog/{preview.slug || "bai-viet"}
+                    </span>
+                  </div>
+                  {!isNew && (
+                    <p className="text-[10px] leading-4 text-amber-600">
+                      ⚠ Cảnh báo: Thay đổi đường dẫn bài viết đã công khai có thể làm gãy các liên kết cũ và làm mất index trên Google.
+                    </p>
+                  )}
                 </div>
                 <FieldError message={errors.slug?.message} />
               </div>
@@ -5782,13 +5834,42 @@ export default function BlogPostDetailPage() {
                   <div className="space-y-2">
                     <div className="flex items-center justify-between">
                       <Label>URL Slug</Label>
-                      <span className="text-xs text-stone-400">{(preview.slug || "").length} / 75</span>
+                      <div className="flex items-center gap-1.5">
+                        {isSlugManual && (
+                          <Button
+                            type="button"
+                            variant="ghost"
+                            size="sm"
+                            className="h-6 rounded bg-orange-50 px-2 text-[10px] text-orange-700 hover:bg-orange-100 hover:text-orange-800 gap-1"
+                            onClick={() => {
+                              const nextSlug = slugify(preview.title ?? "")
+                              setValue("slug", nextSlug, { shouldDirty: true, shouldValidate: true })
+                              setIsSlugManual(false)
+                            }}
+                          >
+                            <IconWand className="size-3" />
+                            Đồng bộ
+                          </Button>
+                        )}
+                        <span className="text-xs text-stone-400">{(preview.slug || "").length} / 75</span>
+                      </div>
                     </div>
                     <Input
-                      {...register("slug")}
+                      {...register("slug", {
+                        onChange: (e) => {
+                          const cleaned = slugify(e.target.value)
+                          setValue("slug", cleaned, { shouldDirty: true, shouldValidate: true })
+                          setIsSlugManual(true)
+                        }
+                      })}
                       placeholder="top-10-giay-boot"
                       className="rounded-xl border-stone-300 focus-visible:ring-orange-200 font-mono text-xs"
                     />
+                    {!isNew && (
+                      <p className="text-[10px] leading-4 text-amber-600">
+                        ⚠ Cảnh báo: Thay đổi đường dẫn bài viết đã công khai có thể làm gãy các liên kết cũ và làm mất index trên Google.
+                      </p>
+                    )}
                   </div>
                   <div className="space-y-2">
                     <Label>URL chuẩn (Canonical)</Label>

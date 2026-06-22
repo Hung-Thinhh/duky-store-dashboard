@@ -47,7 +47,7 @@ export const blogService = {
 
   async assistWithAi(data: BlogAiAssistPayload) {
     const response = await apiClient.post("/admin/blog-ai/assist", data, {
-      timeout: 300000,
+      timeout: 900000,
     });
     return BlogAiAssistResponseSchema.parse(response).DT;
   },
