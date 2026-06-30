@@ -368,8 +368,8 @@ export default function ProductsPage() {
     if (priceSort === "DEFAULT") return filtered
 
     return [...filtered].sort((a, b) => {
-      const priceA = a.salePrice ?? a.originalPrice
-      const priceB = b.salePrice ?? b.originalPrice
+      const priceA = (a.salePrice != null && a.salePrice > 0) ? a.salePrice : a.originalPrice
+      const priceB = (b.salePrice != null && b.salePrice > 0) ? b.salePrice : b.originalPrice
       return priceSort === "ASC" ? priceA - priceB : priceB - priceA
     })
   }, [flagFilter, priceSort, products, stockFilter])
@@ -1132,7 +1132,7 @@ export default function ProductsPage() {
                           <span className="text-muted-foreground text-sm">Giá liên hệ</span>
                         ) : (
                           <div className="flex flex-col items-end gap-0.5">
-                            {product.salePrice != null ? (
+                            {product.salePrice != null && product.salePrice > 0 ? (
                               <>
                                 <span className="text-danger font-semibold">
                                   {formatPrice(product.salePrice)}
@@ -1271,11 +1271,14 @@ export default function ProductsPage() {
                                   </TableRow>
                                 ) : (
                                   loadedVariants.map((variant) => {
-                                  const retailPrice =
-                                    variant.salePrice ??
-                                    variant.price ??
-                                    product.salePrice ??
-                                    product.originalPrice
+                                   const retailPrice =
+                                     (variant.salePrice != null && variant.salePrice > 0)
+                                       ? variant.salePrice
+                                       : (variant.price != null && variant.price > 0)
+                                         ? variant.price
+                                         : (product.salePrice != null && product.salePrice > 0)
+                                           ? product.salePrice
+                                           : product.originalPrice
 
                                   return (
                                     <TableRow key={variant.id} className="hover:bg-muted/40">

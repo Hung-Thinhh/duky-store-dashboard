@@ -488,7 +488,7 @@ const getVariantOptionLabel = (variant: ProductVariant) => {
     variantName: variant.name,
     sku: variant.sku,
     quantity: 1,
-    price: variant.salePrice ?? variant.price ?? 0,
+    price: (variant.salePrice != null && variant.salePrice > 0) ? variant.salePrice : (variant.price ?? 0),
   })
 
   return fallbackLabel ?? variant.sku
@@ -770,8 +770,12 @@ export default function OrdersPage() {
       const firstVariant = variants[0]
       const inventory = hasVariants ? firstVariant.inventory : detail.inventory
       const unitPrice = hasVariants
-        ? firstVariant.salePrice ?? firstVariant.price ?? detail.salePrice ?? detail.originalPrice
-        : detail.salePrice ?? detail.originalPrice
+        ? (firstVariant.salePrice != null && firstVariant.salePrice > 0)
+          ? firstVariant.salePrice
+          : firstVariant.price ?? (detail.salePrice != null && detail.salePrice > 0 ? detail.salePrice : detail.originalPrice)
+        : (detail.salePrice != null && detail.salePrice > 0)
+          ? detail.salePrice
+          : detail.originalPrice
 
       setManualItems((current) =>
         current.map((item) =>
@@ -811,7 +815,7 @@ export default function OrdersPage() {
           ...item,
           variantId: variant.id,
           sku: variant.sku,
-          unitPrice: variant.salePrice ?? variant.price ?? item.unitPrice,
+          unitPrice: (variant.salePrice != null && variant.salePrice > 0) ? variant.salePrice : (variant.price ?? item.unitPrice),
           availableQuantity: variant.inventory
             ? (variant.inventory.quantity ?? 0) - (variant.inventory.reservedQuantity ?? 0)
             : null,

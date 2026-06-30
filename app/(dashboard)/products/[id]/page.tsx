@@ -2590,7 +2590,7 @@ export default function ProductDetailPage() {
 
     const rows = combineVariantAxes(axes)
     const basePrice = originalPrice ?? 0
-    const baseSalePrice = salePrice ?? null
+    const baseSalePrice = salePrice && salePrice > 0 ? salePrice : null
     const baseSku = getValues("sku") || slug || "DUKY"
 
     setVariantDrafts((current) => {
@@ -2753,7 +2753,7 @@ export default function ProductDetailPage() {
                   .map((val) => `${val.attributeId}:${val.termId}`)
                   .join("|") || v.id
                 const basePrice = detail.originalPrice ?? 0
-                const baseSalePrice = detail.salePrice ?? null
+                const baseSalePrice = detail.salePrice && detail.salePrice > 0 ? detail.salePrice : null
                 const hasCustomPrice =
                   (v.price != null && v.price !== basePrice) ||
                   (v.salePrice != null && v.salePrice !== baseSalePrice)
@@ -2765,7 +2765,7 @@ export default function ProductDetailPage() {
                     ? ("custom" as VariantPriceMode)
                     : ("default" as VariantPriceMode),
                   price: v.price ?? basePrice,
-                  salePrice: v.salePrice ?? baseSalePrice,
+                  salePrice: (v.salePrice && v.salePrice > 0) ? v.salePrice : baseSalePrice,
                   sku: v.sku,
                   isActive: v.isActive,
                 }
@@ -2807,7 +2807,7 @@ export default function ProductDetailPage() {
         type: data.type,
         sku: data.sku || null,
         originalPrice: isGroupedProduct ? 0 : (data.originalPrice ?? 0),
-        salePrice: isGroupedProduct ? null : (data.salePrice ?? null),
+        salePrice: isGroupedProduct ? null : (data.salePrice && data.salePrice > 0 ? data.salePrice : null),
         shortDescription: data.shortDescription || null,
         description: data.description || null,
         externalUrl: isExternalProduct ? data.externalUrl || null : null,
@@ -3257,8 +3257,8 @@ export default function ProductDetailPage() {
           : (draft.price ?? 0)
       const salePriceValue =
         draft.priceMode === "default"
-          ? (salePrice ?? null)
-          : draft.salePrice
+          ? (salePrice && salePrice > 0 ? salePrice : null)
+          : (draft.salePrice && draft.salePrice > 0 ? draft.salePrice : null)
 
       const name = [productName, ...draft.values.map((value) => value.termName)]
         .filter(Boolean)
@@ -4532,8 +4532,8 @@ export default function ProductDetailPage() {
                                               : draft.price,
                                           salePrice:
                                             value === "default"
-                                              ? (salePrice ?? null)
-                                              : draft.salePrice,
+                                              ? (salePrice && salePrice > 0 ? salePrice : null)
+                                              : (draft.salePrice && draft.salePrice > 0 ? draft.salePrice : null),
                                         })
                                       }
                                     >

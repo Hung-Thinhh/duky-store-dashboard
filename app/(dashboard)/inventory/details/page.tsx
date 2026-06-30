@@ -184,7 +184,7 @@ export default function InventoryDetailsPage() {
       
       const qtyChanged = draft.quantity !== undefined && draft.quantity !== (v.inventory?.quantity ?? 0).toString()
       const priceChanged = draft.price !== undefined && draft.price !== (v.price ?? 0).toString()
-      const salePriceChanged = draft.salePrice !== undefined && draft.salePrice !== (v.salePrice ?? "").toString()
+      const salePriceChanged = draft.salePrice !== undefined && draft.salePrice !== (v.salePrice != null && v.salePrice > 0 ? v.salePrice.toString() : "")
       
       return qtyChanged || priceChanged || salePriceChanged
     })
@@ -209,7 +209,7 @@ export default function InventoryDetailsPage() {
       if (!draft) return false
       const qtyChanged = draft.quantity !== undefined && draft.quantity !== (v.inventory?.quantity ?? 0).toString()
       const priceChanged = draft.price !== undefined && draft.price !== (v.price ?? 0).toString()
-      const salePriceChanged = draft.salePrice !== undefined && draft.salePrice !== (v.salePrice ?? "").toString()
+      const salePriceChanged = draft.salePrice !== undefined && draft.salePrice !== (v.salePrice != null && v.salePrice > 0 ? v.salePrice.toString() : "")
       return qtyChanged || priceChanged || salePriceChanged
     })
 
@@ -239,7 +239,7 @@ export default function InventoryDetailsPage() {
             showToast(`Giá khuyến mãi không hợp lệ cho SKU: ${variant.sku}`, "error")
             return
           }
-          finalSalePrice = parsedSale
+          finalSalePrice = parsedSale > 0 ? parsedSale : null
         }
       }
 
@@ -641,7 +641,7 @@ export default function InventoryDetailsPage() {
                                             const draft = editedVariants[variant.id]
                                             const displayQty = draft?.quantity !== undefined ? draft.quantity : variantQty.toString()
                                             const displayPrice = draft?.price !== undefined ? draft.price : (variant.price ?? 0).toString()
-                                            const displaySalePrice = draft?.salePrice !== undefined ? draft.salePrice : (variant.salePrice ?? "").toString()
+                                            const displaySalePrice = draft?.salePrice !== undefined ? draft.salePrice : (variant.salePrice != null && variant.salePrice > 0 ? variant.salePrice.toString() : "")
 
                                             // Build label: Color / Size
                                             const labelParts = [
