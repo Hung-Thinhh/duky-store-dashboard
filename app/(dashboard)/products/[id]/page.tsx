@@ -1718,6 +1718,7 @@ export default function ProductDetailPage() {
     tone: "success" | "error"
   } | null>(null)
   const [seoKeywordInput, setSeoKeywordInput] = React.useState("")
+  const [draggedKeywordIndex, setDraggedKeywordIndex] = React.useState<number | null>(null)
 
   // States cho Trợ lý AI Mô tả ngắn và Mô tả chi tiết
   const [showShortDescAiPanel, setShowShortDescAiPanel] = React.useState(false)
@@ -1977,6 +1978,38 @@ export default function ProductDetailPage() {
     },
     [seoKeywords, updateFocusKeyword]
   )
+  const makeSeoKeywordPrimary = React.useCallback(
+    (index: number) => {
+      if (index === 0) return
+      const selected = seoKeywords[index]
+      const remaining = seoKeywords.filter((_, keywordIndex) => keywordIndex !== index)
+      updateFocusKeyword([selected, ...remaining].join(", "))
+    },
+    [seoKeywords, updateFocusKeyword]
+  )
+
+  const handleSeoKeywordDragStart = (index: number) => {
+    setDraggedKeywordIndex(index)
+  }
+
+  const handleSeoKeywordDragOver = (event: React.DragEvent, index: number) => {
+    event.preventDefault()
+  }
+
+  const handleSeoKeywordDrop = (index: number) => {
+    if (draggedKeywordIndex === null || draggedKeywordIndex === index) return
+
+    const newKeywords = [...seoKeywords]
+    const [moved] = newKeywords.splice(draggedKeywordIndex, 1)
+    newKeywords.splice(index, 0, moved)
+
+    updateFocusKeyword(newKeywords.join(", "))
+    setDraggedKeywordIndex(null)
+  }
+
+  const handleSeoKeywordDragEnd = () => {
+    setDraggedKeywordIndex(null)
+  }
 
   const buildSeoAnalysisForAi = (analysis: ProductSeoAnalysis) => {
     const failedChecks: string[] = []
@@ -4853,14 +4886,23 @@ export default function ProductDetailPage() {
                 <div className="flex min-h-10 flex-wrap items-center gap-1.5 rounded-xl border border-stone-200 bg-white px-3 py-2 focus-within:ring-2 focus-within:ring-green-100">
                   {seoKeywords.map((keyword, index) => {
                     const isPrimary = index === 0
+                    const isBeingDragged = draggedKeywordIndex === index
                     return (
                       <span
                         key={`${keyword}-${index}`}
+                        draggable
+                        onDragStart={() => handleSeoKeywordDragStart(index)}
+                        onDragOver={(e) => handleSeoKeywordDragOver(e, index)}
+                        onDrop={() => handleSeoKeywordDrop(index)}
+                        onDragEnd={handleSeoKeywordDragEnd}
+                        onClick={() => makeSeoKeywordPrimary(index)}
+                        title={isPrimary ? "Từ khóa chính (Kéo thả để sắp xếp thứ tự)" : "Click để đặt làm từ khóa chính / Kéo thả để sắp xếp"}
                         className={cn(
-                          "inline-flex max-w-full items-center gap-1 rounded-full px-2.5 py-1 text-xs font-medium",
+                          "inline-flex max-w-full items-center gap-1 rounded-full px-2.5 py-1 text-xs font-medium transition-all duration-150 select-none",
                           isPrimary
-                            ? "bg-green-300 text-green-800"
-                            : "bg-orange-200/80 text-orange-700"
+                            ? "bg-green-300 text-green-800 cursor-grab active:cursor-grabbing"
+                            : "bg-orange-200/80 text-orange-700 cursor-pointer hover:bg-orange-300/80 hover:scale-105 active:scale-95",
+                          isBeingDragged && "opacity-40 scale-95"
                         )}
                       >
                         <span className="truncate">{keyword}</span>
@@ -4875,9 +4917,12 @@ export default function ProductDetailPage() {
                         )}
                         <button
                           type="button"
-                          onClick={() => removeSeoKeyword(index)}
+                          onClick={(e) => {
+                            e.stopPropagation()
+                            removeSeoKeyword(index)
+                          }}
                           className={cn(
-                            "inline-flex size-4 shrink-0 items-center justify-center rounded-full",
+                            "inline-flex size-4 shrink-0 items-center justify-center rounded-full transition-colors",
                             isPrimary ? "hover:bg-green-200" : "hover:bg-stone-200"
                           )}
                           aria-label={`Xoa tu khoa ${keyword}`}
