@@ -1019,7 +1019,7 @@ export default function SearchConsolePage() {
   }
 
   return (
-    <div className="flex flex-col gap-6 p-6">
+    <div className="mx-auto flex max-w-8xl w-full min-w-0 flex-col gap-6 p-6">
       {feedback ? (
         <div className="fixed right-4 top-[80px] z-[80] w-[min(420px,calc(100vw-32px))] animate-in fade-in slide-in-from-top-4 duration-300">
           <div

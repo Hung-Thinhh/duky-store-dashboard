@@ -159,7 +159,7 @@ export default function TagsPage() {
   )
 
   return (
-    <div className="flex flex-col gap-6 p-6">
+    <div className="mx-auto flex max-w-8xl w-full min-w-0 flex-col gap-6 p-6">
       {/* Header */}
       <div className="flex flex-col gap-4 md:flex-row md:items-center md:justify-between">
         <div>

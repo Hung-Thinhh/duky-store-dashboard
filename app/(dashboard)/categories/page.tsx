@@ -372,7 +372,7 @@ export default function CategoriesPage() {
   }
 
   return (
-    <div className="flex flex-col gap-6 p-6">
+    <div className="mx-auto flex max-w-8xl w-full min-w-0 flex-col gap-6 p-6">
       {/* Header */}
       <div className="flex flex-col gap-4 md:flex-row md:items-center md:justify-between">
         <div>
@@ -417,7 +417,7 @@ export default function CategoriesPage() {
       </div>
 
       {/* Table */}
-      <div className="overflow-hidden rounded-xl border bg-card">
+      <div className="overflow-x-auto max-w-full rounded-xl border bg-card">
         <Table>
           <TableHeader className="bg-muted/30">
             <TableRow className="hover:bg-transparent">

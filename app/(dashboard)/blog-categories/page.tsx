@@ -184,7 +184,7 @@ export default function BlogCategoriesPage() {
   )
 
   return (
-    <div className="flex flex-col gap-6 p-6">
+    <div className="mx-auto flex max-w-8xl w-full min-w-0 flex-col gap-6 p-6">
       <div className="flex flex-col gap-4 md:flex-row md:items-center md:justify-between">
         <div>
           <h1 className="text-2xl font-bold tracking-tight">Danh mục Blog</h1>
@@ -212,7 +212,7 @@ export default function BlogCategoriesPage() {
         </div>
       </div>
 
-      <div className="overflow-hidden rounded-xl border bg-card max-w-5xl">
+      <div className="overflow-x-auto max-w-full rounded-xl border bg-card">
         <Table>
           <TableHeader className="bg-muted/30">
             <TableRow className="hover:bg-transparent">

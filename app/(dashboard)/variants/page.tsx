@@ -245,7 +245,7 @@ export default function VariantsPage() {
 
   return (
     <>
-    <div className="grid gap-6 p-6 lg:grid-cols-[380px_1fr]">
+    <div className="mx-auto grid max-w-8xl w-full min-w-0 gap-6 p-6 lg:grid-cols-[380px_1fr]">
       <section className="rounded-xl border bg-card p-5">
         <h1 className="text-xl font-bold">Các thuộc tính</h1>
         <p className="mt-2 text-sm text-muted-foreground">Tạo thuộc tính toàn cục như kích thước, màu sắc, thương hiệu. Sau đó vào sản phẩm để chọn các giá trị như 39, 40.</p>

@@ -297,7 +297,7 @@ export default function MarketingPage() {
   const totalWishlist = wishlist.reduce((sum, item) => sum + item.wishlistCount, 0)
 
   return (
-    <div className="flex flex-col gap-6 p-6">
+    <div className="mx-auto flex max-w-8xl w-full min-w-0 flex-col gap-6 p-6">
       <div className="flex flex-col gap-4 md:flex-row md:items-center md:justify-between">
         <div>
           <h1 className="text-2xl font-bold tracking-tight">Ti?p th? & t?ng tr??ng</h1>

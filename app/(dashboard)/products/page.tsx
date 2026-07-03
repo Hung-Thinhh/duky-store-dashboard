@@ -738,7 +738,7 @@ export default function ProductsPage() {
   }
 
   return (
-    <div className="flex flex-col gap-5 p-6 w-full min-w-0">
+    <div className="mx-auto flex max-w-8xl w-full min-w-0 flex-col gap-5 p-6">
       <div className="flex flex-col gap-4 md:flex-row md:items-center md:justify-between">
         <div>
           <h1 className="text-2xl font-bold tracking-tight">Sản phẩm</h1>
@@ -992,15 +992,15 @@ export default function ProductsPage() {
                 />
               </TableHead>
               <TableHead className="w-[84px]">Ảnh</TableHead>
-              <TableHead className="w-[84px]">Mã QR</TableHead>
-              <TableHead className="min-w-[240px]">Sản phẩm</TableHead>
+              <TableHead className="w-[84px] hidden min-[1650px]:table-cell">Mã QR</TableHead>
+              <TableHead className="min-w-[200px]">Sản phẩm</TableHead>
               <TableHead className="min-w-[120px] text-right">Giá bán</TableHead>
-              <TableHead className="min-w-[130px]">Loại</TableHead>
-              <TableHead className="text-right">Có thể bán</TableHead>
-              <TableHead className="text-right">Tồn kho</TableHead>
-              <TableHead className="min-w-[120px]">Ngày khởi tạo</TableHead>
-              <TableHead className="min-w-[120px]">Cập nhật cuối</TableHead>
-              <TableHead className="w-12 text-right" />
+              <TableHead className="min-w-[130px] hidden lg:table-cell">Loại</TableHead>
+              <TableHead className="min-w-[110px] text-right">Có thể bán</TableHead>
+              <TableHead className="min-w-[110px] text-right">Tồn kho</TableHead>
+              <TableHead className="min-w-[120px] hidden min-[1750px]:table-cell">Ngày khởi tạo</TableHead>
+              <TableHead className="min-w-[120px] hidden min-[1850px]:table-cell">Cập nhật cuối</TableHead>
+              <TableHead className="w-12 min-w-[48px] text-right" />
             </TableRow>
           </TableHeader>
           <TableBody>
@@ -1078,7 +1078,7 @@ export default function ProductsPage() {
                           alt={product.image?.altText || product.name}
                         />
                       </TableCell>
-                      <TableCell>
+                      <TableCell className="hidden min-[1650px]:table-cell">
                         {/* eslint-disable-next-line @next/next/no-img-element */}
                         <img
                           src={`https://api.qrserver.com/v1/create-qr-code/?size=100x100&data=${encodeURIComponent(
@@ -1090,7 +1090,7 @@ export default function ProductsPage() {
                           title="Click để phóng to và tải mã QR"
                         />
                       </TableCell>
-                      <TableCell>
+                      <TableCell className="whitespace-normal min-w-0">
                         <div className="flex min-w-0 flex-col gap-1">
                           <Link
                             href={`/products/${product.id}`}
@@ -1147,7 +1147,7 @@ export default function ProductsPage() {
                           </div>
                         )}
                       </TableCell>
-                      <TableCell>
+                      <TableCell className="hidden lg:table-cell">
                         <div className="flex flex-col gap-1">
                           <span>{productTypeLabels[product.type] ?? product.type}</span>
                           <Badge
@@ -1172,8 +1172,8 @@ export default function ProductsPage() {
                           <div className="text-xs text-danger">Sắp hết</div>
                         )}
                       </TableCell>
-                      <TableCell>{formatDate(product.createdAt)}</TableCell>
-                      <TableCell>{formatDate(product.updatedAt)}</TableCell>
+                      <TableCell className="hidden min-[1750px]:table-cell">{formatDate(product.createdAt)}</TableCell>
+                      <TableCell className="hidden min-[1850px]:table-cell">{formatDate(product.updatedAt)}</TableCell>
                       <TableCell className="text-right">
                         <DropdownMenu>
                           <DropdownMenuTrigger asChild>
@@ -1216,23 +1216,22 @@ export default function ProductsPage() {
                         </DropdownMenu>
                       </TableCell>
                     </TableRow>
-
                     {isExpanded && (
-                      <TableRow className="bg-info-soft/35 hover:bg-info-soft/35">
-                        <TableCell colSpan={12} className="p-0">
-                          <div className="ml-20 max-w-[1040px] border-l bg-card">
+                      <TableRow>
+                        <TableCell colSpan={12} className="bg-muted/20 p-0">
+                          <div className="p-4">
                             <Table>
                               <TableHeader className="bg-card">
                                 <TableRow className="hover:bg-transparent">
-                                  <TableHead className="min-w-[300px] pl-6">
+                                  <TableHead className="min-w-[200px] pl-6">
                                     Phiên bản
                                   </TableHead>
-                                  <TableHead className="text-right">Tồn kho</TableHead>
-                                  <TableHead className="text-right">Có thể bán</TableHead>
-                                  <TableHead className="text-right">Đang giao dịch</TableHead>
-                                  <TableHead className="text-right">Giá bán lẻ</TableHead>
-                                  <TableHead className="text-right">Giá bán buôn</TableHead>
-                                  <TableHead className="text-right pr-6">Giá nhập</TableHead>
+                                  <TableHead className="min-w-[90px] text-right">Tồn kho</TableHead>
+                                  <TableHead className="min-w-[100px] text-right">Có thể bán</TableHead>
+                                  <TableHead className="min-w-[110px] text-right hidden md:table-cell">Đang giao dịch</TableHead>
+                                  <TableHead className="min-w-[110px] text-right">Giá bán lẻ</TableHead>
+                                  <TableHead className="min-w-[110px] text-right hidden lg:table-cell">Giá bán buôn</TableHead>
+                                  <TableHead className="min-w-[100px] text-right pr-6 hidden xl:table-cell">Giá nhập</TableHead>
                                 </TableRow>
                               </TableHeader>
                               <TableBody>
@@ -1256,7 +1255,7 @@ export default function ProductsPage() {
                                         size="sm"
                                         onClick={() => loadProductVariants(product.id)}
                                       >
-                                        Táº£i láº¡i biáº¿n thá»ƒ
+                                        Tải lại biến thể
                                       </Button>
                                     </TableCell>
                                   </TableRow>
@@ -1266,7 +1265,7 @@ export default function ProductsPage() {
                                       colSpan={7}
                                       className="h-20 text-center text-muted-foreground"
                                     >
-                                      ChÆ°a cÃ³ biáº¿n thá»ƒ.
+                                      Chưa có biến thể.
                                     </TableCell>
                                   </TableRow>
                                 ) : (
@@ -1313,7 +1312,7 @@ export default function ProductsPage() {
                                       <TableCell className="text-right">
                                         {compactNumber.format(getVariantAvailable(variant))}
                                       </TableCell>
-                                      <TableCell className="text-right">
+                                      <TableCell className="text-right hidden md:table-cell">
                                         {compactNumber.format(getVariantReserved(variant))}
                                       </TableCell>
                                       <TableCell className="text-right">

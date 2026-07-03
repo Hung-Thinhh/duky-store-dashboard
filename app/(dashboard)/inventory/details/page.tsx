@@ -11,6 +11,8 @@ import {
   IconChevronRight,
   IconHistory,
   IconLoader2,
+  IconMinus,
+  IconPlus,
   IconSearch,
 } from "@tabler/icons-react"
 
@@ -439,11 +441,11 @@ export default function InventoryDetailsPage() {
                 <TableRow className="hover:bg-transparent">
                   <TableHead className="w-10"></TableHead>
                   <TableHead className="h-12 w-[30%] max-w-[200px] md:max-w-[350px]">Sản phẩm cha</TableHead>
-                  <TableHead className="h-12 w-[15%]">SKU cha</TableHead>
+                  <TableHead className="h-12 w-[15%] hidden md:table-cell">SKU cha</TableHead>
                   <TableHead className="h-12 w-[9%] text-center">Tổng tồn kho</TableHead>
-                  <TableHead className="h-12 w-[9%] text-center">Tổng đang đặt</TableHead>
+                  <TableHead className="h-12 w-[9%] text-center hidden lg:table-cell">Tổng đang đặt</TableHead>
                   <TableHead className="h-12 w-[9%] text-center">Tổng khả dụng</TableHead>
-                  <TableHead className="h-12 w-[9%] text-center">Số biến thể</TableHead>
+                  <TableHead className="h-12 w-[9%] text-center hidden md:table-cell">Số biến thể</TableHead>
                   <TableHead className="h-12 w-[9%] text-right">Trạng thái</TableHead>
                 </TableRow>
               </TableHeader>
@@ -501,19 +503,19 @@ export default function InventoryDetailsPage() {
                               <span className="line-clamp-2 break-words whitespace-normal text-sm leading-snug flex-1">{product.name}</span>
                             </div>
                           </TableCell>
-                          <TableCell className="font-mono text-sm">{product.sku || "N/A"}</TableCell>
+                          <TableCell className="font-mono text-sm hidden md:table-cell">{product.sku || "N/A"}</TableCell>
                           <TableCell className="text-center text-base font-bold">
                             <span className={isLowStock ? "text-danger" : "text-foreground"}>
                               {formatNumber(totalStock)}
                             </span>
                           </TableCell>
-                          <TableCell className="text-center text-muted-foreground">
+                          <TableCell className="text-center text-muted-foreground hidden lg:table-cell">
                             {formatNumber(totalReserved)}
                           </TableCell>
                           <TableCell className="text-center font-semibold text-foreground">
                             {formatNumber(totalAvailable)}
                           </TableCell>
-                          <TableCell className="text-center">
+                          <TableCell className="text-center hidden md:table-cell">
                             <Badge variant="secondary" className="rounded-md border-0 bg-secondary px-2">
                               {product.variantsCount ?? 0}
                             </Badge>
@@ -545,11 +547,11 @@ export default function InventoryDetailsPage() {
                                       <TableHeader className="bg-muted/40">
                                         <TableRow className="hover:bg-transparent">
                                           <TableHead className="text-xs font-semibold">Phiên bản</TableHead>
-                                          <TableHead className="text-xs font-semibold">SKU biến thể</TableHead>
-                                          <TableHead className="text-xs font-semibold text-center w-[120px]">
+                                          <TableHead className="text-xs font-semibold hidden md:table-cell">SKU biến thể</TableHead>
+                                          <TableHead className="text-xs font-semibold text-center w-[160px]">
                                             Tồn kho
                                           </TableHead>
-                                          <TableHead className="text-xs font-semibold text-center w-[120px]">
+                                          <TableHead className="text-xs font-semibold text-center w-[120px] hidden lg:table-cell">
                                             Đang đặt
                                           </TableHead>
                                           <TableHead className="text-xs font-semibold text-center w-[120px]">
@@ -558,10 +560,10 @@ export default function InventoryDetailsPage() {
                                           <TableHead className="text-xs font-semibold text-center w-[160px]">
                                             Giá bán lẻ (đ)
                                           </TableHead>
-                                          <TableHead className="text-xs font-semibold text-center w-[160px]">
+                                          <TableHead className="text-xs font-semibold text-center w-[160px] hidden lg:table-cell">
                                             Giá khuyến mãi (đ)
                                           </TableHead>
-                                          <TableHead className="text-xs font-semibold text-center w-[80px]">
+                                          <TableHead className="text-xs font-semibold text-center w-[80px] hidden xl:table-cell">
                                             Lịch sử
                                           </TableHead>
                                         </TableRow>
@@ -572,13 +574,13 @@ export default function InventoryDetailsPage() {
                                             <TableCell>
                                               <Skeleton className="h-5 w-24 bg-muted-foreground/15" />
                                             </TableCell>
-                                            <TableCell>
+                                            <TableCell className="hidden md:table-cell">
                                               <Skeleton className="h-4 w-32 bg-muted-foreground/15" />
                                             </TableCell>
                                             <TableCell className="p-2">
                                               <Skeleton className="mx-auto h-8 w-20 rounded-lg bg-muted-foreground/15" />
                                             </TableCell>
-                                            <TableCell>
+                                            <TableCell className="hidden min-[1600px]:table-cell">
                                               <Skeleton className="mx-auto h-4 w-12 bg-muted-foreground/15" />
                                             </TableCell>
                                             <TableCell>
@@ -587,10 +589,10 @@ export default function InventoryDetailsPage() {
                                             <TableCell className="p-2">
                                               <Skeleton className="mx-auto h-8 w-32 rounded-lg bg-muted-foreground/15" />
                                             </TableCell>
-                                            <TableCell className="p-2">
+                                            <TableCell className="p-2 hidden min-[1700px]:table-cell">
                                               <Skeleton className="mx-auto h-8 w-32 rounded-lg bg-muted-foreground/15" />
                                             </TableCell>
-                                            <TableCell className="p-2">
+                                            <TableCell className="p-2 hidden min-[1800px]:table-cell">
                                               <Skeleton className="mx-auto h-8 w-8 rounded-lg bg-muted-foreground/15" />
                                             </TableCell>
                                           </TableRow>
@@ -609,11 +611,11 @@ export default function InventoryDetailsPage() {
                                         <TableHeader className="bg-muted/40">
                                           <TableRow className="hover:bg-transparent">
                                             <TableHead className="text-xs font-semibold">Phiên bản</TableHead>
-                                            <TableHead className="text-xs font-semibold">SKU biến thể</TableHead>
-                                            <TableHead className="text-xs font-semibold text-center w-[120px]">
+                                            <TableHead className="text-xs font-semibold hidden md:table-cell">SKU biến thể</TableHead>
+                                            <TableHead className="text-xs font-semibold text-center w-[160px]">
                                               Tồn kho
                                             </TableHead>
-                                            <TableHead className="text-xs font-semibold text-center w-[120px]">
+                                            <TableHead className="text-xs font-semibold text-center w-[120px] hidden min-[1600px]:table-cell">
                                               Đang đặt
                                             </TableHead>
                                             <TableHead className="text-xs font-semibold text-center w-[120px]">
@@ -622,10 +624,10 @@ export default function InventoryDetailsPage() {
                                             <TableHead className="text-xs font-semibold text-center w-[160px]">
                                               Giá bán lẻ (đ)
                                             </TableHead>
-                                            <TableHead className="text-xs font-semibold text-center w-[160px]">
+                                            <TableHead className="text-xs font-semibold text-center w-[160px] hidden min-[1700px]:table-cell">
                                               Giá khuyến mãi (đ)
                                             </TableHead>
-                                            <TableHead className="text-xs font-semibold text-center w-[80px]">
+                                            <TableHead className="text-xs font-semibold text-center w-[80px] hidden min-[1800px]:table-cell">
                                               Lịch sử
                                             </TableHead>
                                           </TableRow>
@@ -666,37 +668,81 @@ export default function InventoryDetailsPage() {
                                                     <span>{label}</span>
                                                   </div>
                                                 </TableCell>
-                                                <TableCell className="font-mono text-xs text-muted-foreground">
+                                                <TableCell className="font-mono text-xs text-muted-foreground hidden md:table-cell">
                                                   {variant.sku}
                                                 </TableCell>
                                                 <TableCell className="text-center p-2">
-                                                  <div className="relative flex items-center justify-center">
-                                                    <Input
-                                                      type="text"
+                                                  <div className="flex items-center justify-center gap-1">
+                                                    <Button
+                                                      type="button"
+                                                      variant="outline"
+                                                      size="icon"
+                                                      className="size-7 rounded-lg shrink-0 border-border hover:border-primary/50 hover:bg-accent text-muted-foreground hover:text-primary transition-colors"
                                                       disabled={isUpdating}
-                                                      value={displayQty}
-                                                      className="w-20 text-center h-8 rounded-lg bg-transparent border-border hover:border-primary/50 focus:border-primary font-semibold text-sm transition-all focus:bg-card"
-                                                      onChange={(e) => {
-                                                        const val = e.target.value
+                                                      onClick={() => {
+                                                        const currentVal = parseInt(displayQty.replace(/[^0-9]/g, ""), 10) || 0
+                                                        const newVal = Math.max(0, currentVal - 1)
                                                         setEditedVariants((prev) => ({
                                                           ...prev,
-                                                          [variant.id]: { ...prev[variant.id], quantity: val },
+                                                          [variant.id]: {
+                                                            ...prev[variant.id],
+                                                            quantity: newVal.toString(),
+                                                          },
                                                         }))
                                                       }}
-                                                      onKeyDown={(e) => {
-                                                        if (e.key === "Enter") {
-                                                          handleSaveChanges(product.id)
-                                                        }
+                                                    >
+                                                      <IconMinus className="size-3.5" />
+                                                    </Button>
+
+                                                    <div className="relative flex items-center justify-center">
+                                                      <Input
+                                                        type="text"
+                                                        disabled={isUpdating}
+                                                        value={displayQty}
+                                                        className="w-16 text-center h-8 rounded-lg bg-transparent border-border hover:border-primary/50 focus:border-primary font-semibold text-sm transition-all focus:bg-card"
+                                                        onChange={(e) => {
+                                                          const val = e.target.value
+                                                          setEditedVariants((prev) => ({
+                                                            ...prev,
+                                                            [variant.id]: { ...prev[variant.id], quantity: val },
+                                                          }))
+                                                        }}
+                                                        onKeyDown={(e) => {
+                                                          if (e.key === "Enter") {
+                                                            handleSaveChanges(product.id)
+                                                          }
+                                                        }}
+                                                      />
+                                                      {isUpdating && (
+                                                        <span className="absolute right-0.5 size-4">
+                                                          <IconLoader2 className="size-3.5 animate-spin text-primary" />
+                                                        </span>
+                                                      )}
+                                                    </div>
+
+                                                    <Button
+                                                      type="button"
+                                                      variant="outline"
+                                                      size="icon"
+                                                      className="size-7 rounded-lg shrink-0 border-border hover:border-primary/50 hover:bg-accent text-muted-foreground hover:text-primary transition-colors"
+                                                      disabled={isUpdating}
+                                                      onClick={() => {
+                                                        const currentVal = parseInt(displayQty.replace(/[^0-9]/g, ""), 10) || 0
+                                                        const newVal = currentVal + 1
+                                                        setEditedVariants((prev) => ({
+                                                          ...prev,
+                                                          [variant.id]: {
+                                                            ...prev[variant.id],
+                                                            quantity: newVal.toString(),
+                                                          },
+                                                        }))
                                                       }}
-                                                    />
-                                                    {isUpdating && (
-                                                      <span className="absolute right-0.5 size-4">
-                                                        <IconLoader2 className="size-3.5 animate-spin text-primary" />
-                                                      </span>
-                                                    )}
+                                                    >
+                                                      <IconPlus className="size-3.5" />
+                                                    </Button>
                                                   </div>
                                                 </TableCell>
-                                                <TableCell className="text-center text-xs text-muted-foreground">
+                                                <TableCell className="text-center text-xs text-muted-foreground hidden min-[1600px]:table-cell">
                                                   {variantReserved}
                                                 </TableCell>
                                                 <TableCell className="text-center text-xs font-semibold text-foreground">
@@ -722,7 +768,7 @@ export default function InventoryDetailsPage() {
                                                     }}
                                                   />
                                                 </TableCell>
-                                                <TableCell className="text-center p-2">
+                                                <TableCell className="text-center p-2 hidden min-[1700px]:table-cell">
                                                   <Input
                                                     type="text"
                                                     disabled={isUpdating}
@@ -743,7 +789,7 @@ export default function InventoryDetailsPage() {
                                                     }}
                                                   />
                                                 </TableCell>
-                                                <TableCell className="text-center p-2">
+                                                <TableCell className="text-center p-2 hidden min-[1800px]:table-cell">
                                                   {variant.inventory?.id ? (
                                                     <Button
                                                       type="button"
